@@ -133,7 +133,10 @@ def InInt(threads, rel):
         if i in thread:
             return t in thread
 
-# This works when all releases and acquires are writes / reads. Can be further specified if fences exist.
+# Cycle in communication + po-loc
+def PerLocSC(threads, rf, fr, co):
+    ...
+
 def ToPoRel(threads):
     result = []
     
@@ -160,7 +163,6 @@ def ToPoRel(threads):
             
     return result
 
-# This works when all releases and acquires are writes / reads. Can be further specified if fences exist.
 def ToAcqPo(threads):
     result = []
     
@@ -202,11 +204,11 @@ def ToStrongFence(threads):
     return result
 
 # Incomplete. There exist more PPOs than will be computed here, but these are "sufficient" for small litmus tests
-# po-rel, acq-po
+# po-rel, acq-po, strong-fence
 def ToPPO(threads):
     result = []
     
-    result += ToPoRel(threads) + ToAcqPo(threads)
+    result += ToPoRel(threads) + ToAcqPo(threads) + ToStrongFence(threads)
     
     return result
 
@@ -342,22 +344,50 @@ def ToHappensBefore(e):
 
 def HappensBefore(e):
     edges = ToHappensBefore(e)
-            
+    # for e in edges:
+    #     print(e)
     G = nx.DiGraph(edges)
     return not nx.is_directed_acyclic_graph(G)
 
 def PropagatesBefore(e):
     strong_fences = ToStrongFence(e.threads)
     
-    edges = strong_fences.copy()
+    rel = []
+    edges = []
     
     for sf in strong_fences:
         for p in e.prop:
             if p.Composes(sf):
-                edges.append(Relation(p, sf))
+                rel.append(Relation(p, sf))
     
-    edges += ToHappensBefore(e)
+    rel += ToHappensBefore(e)
     
+    for r in rel:
+        firsts = []
+        lasts = []
+        
+        tmp = r
+        while isinstance(tmp, Relation):
+            firsts.append(tmp.First())
+            tmp = tmp.First()
+        
+        tmp = r
+        while isinstance(tmp, Relation):
+            lasts.append(tmp.Last())
+            tmp = tmp.Last()
+
+        for s in firsts:
+            for t in lasts:
+                edges.append([s, t])
+                
+        for s in firsts:
+            edges.append([s, r])
+            
+        for s in lasts:
+            edges.append([r, s])
+    
+    # for e in edges:
+    #     print(e)
     G = nx.DiGraph(edges)
     return not nx.is_directed_acyclic_graph(G) 
 
@@ -555,22 +585,22 @@ def rf_candidates(processes):
 
     for r in reads:
         for w in writes:
-            print(r, w)
+            # print(r, w)
             if str(w.location) != str(r.location):
-                print("diff location")
+                # print("diff location")
                 continue
             # Read value constrained
             if r.value != "None":
-                print("constrained")
+                # print("constrained")
                 if str(w.value) == str(r.value):
-                    print("constrained correct")
+                    # print("constrained correct")
                     candidates[r].append(w)
             # Read value unconstrained
             else:
-                print("yay!")
+                # print("candidate found")
                 candidates[r].append(w)
                 
-    print("rf_candidates", candidates)
+    # print("rf_candidates", candidates)
     return candidates
 
 def enumerate_rf_relations(processes, rf_candidates):
@@ -669,7 +699,7 @@ def generate_fr_relations(rf, co):
     # Index co by source write for fast lookup
     co_from = {}
     for rel in co:
-        print("rel", rel)
+        # print("rel", rel)
         co_from.setdefault(rel.First(), []).append(rel.Last())
 
     # rf⁻¹ ; co
@@ -682,19 +712,22 @@ def generate_fr_relations(rf, co):
 
     return fr
 
-parsed = parse_file("/home/kapoorh/Documents/example.txt")
-print(parsed)
+parsed = parse_file("./litmus/ISA2+pooncerelease+poacquirerelease+poacquireonce.litmus")
+# print(parsed)
 converted = convert_to_events(parsed)
-print("converted =", converted)
-apply_read_values(converted, parse_final_constraint("(r0 = 1)"))
+# print("converted =", converted)
+apply_read_values(converted, parse_final_constraint("(r0=1 /\ r1=1 /\ r2=0)"))
 rf = enumerate_rf_relations(converted, rf_candidates(converted)) # get final line from file?
-print("rf", rf)
+# print("rf", rf)
 co = enumerate_co_relations(converted)
-print("co", co)
+# print("co", co)
 fr = []
 for rf_i in rf:
     for co_j in co:
-        test = Execution(converted, rf_i, generate_fr_relations(rf_i, co_j), co_j)
-        print(HappensBefore(test))
+        fr = generate_fr_relations(rf_i, co_j)
+        # print("fr", fr)
+        test = Execution(converted, rf_i, fr, co_j)
+        print("hb", HappensBefore(test))
+        print("pb", PropagatesBefore(test))
 # test = Execution(converted, rf, fr, co) #[Relation(Event(1, "x", "Write", "Release", "C", 1, None), Event(2, "x", "Read", "Acquire", "C", 1, "r0")), Relation(Event(3, "y", "Write", "Relaxed", "C", 1, None), Event(0, "y", "Read", "Relaxed", "C", 1, "r1"))], [], [])
 
