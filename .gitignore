@@ -1,2 +1,6 @@
 notes.txt
 processed/
+__pycache__/
+.vscode/
+.venv/
+.github/
