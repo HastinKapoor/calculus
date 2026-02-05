@@ -3,10 +3,17 @@ import re
 import itertools
 from collections import defaultdict
 import copy
+import argparse
+
+from pprint import pprint
+
+from parser_types import Operation, MemoryOrder, Language, Identifier, IterativeIdentifier, GlobalRegisters, Register
+import os
 
 class Event:
     # Identifier distinguishes two identical operations in different threads or thread positions
-    def __init__(self, identifier, location, type, strength, language, value, register):
+    # Forces values to be ints
+    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int, register):
         self.identifier = identifier
         self.location = location
         self.type = type
@@ -22,7 +29,7 @@ class Event:
         return self.identifier == other.identifier and self.location == other.location
     
     def __hash__(self):
-        return self.identifier
+        return hash(self.identifier)
     
     def __repr__(self):
         return f"Event({self.identifier}, {self.location}, {self.type}, {self.strength}, {self.language}, {self.value}, {self.register})"
@@ -142,23 +149,23 @@ def ToPoRel(threads):
     
     for thread in threads:
         for i in range(len(thread)):
-            if thread[i].strength == "Release" and thread[i].type != "Fence":
+            if thread[i].strength == MemoryOrder.RELEASE and thread[i].type != Operation.FENCE:
                 for j in range(i):
-                    if thread[j].type != "Fence":
+                    if thread[j].type != Operation.FENCE:
                         result.append(Relation(thread[j], thread[i]))
                     else:
                         for k in range(j):
-                            if thread[k].type != "Fence":
+                            if thread[k].type != Operation.FENCE:
                                 result.append(Relation(thread[k], thread[j], thread[i]))
-            elif thread[i].strength == "Release" and thread[i].type == "Fence":
+            elif thread[i].strength == MemoryOrder.RELEASE and thread[i].type == Operation.FENCE:
                 for j in range(i + 1, len(thread)):
-                    if thread[j].type == "Read" or thread[j].type == "RMW":
+                    if thread[j].type == Operation.READ or thread[j].type == Operation.RMW:
                         for k in range(i):
-                            if thread[k].type != "Fence":
+                            if thread[k].type != Operation.FENCE:
                                 result.append(Relation(thread[k], thread[i], thread[j]))
                             else:
                                 for l in range(k):
-                                    if thread[l].type != "Fence":
+                                    if thread[l].type != Operation.FENCE:
                                         result.append(Relation(thread[l], thread[k], thread[i], thread[j]))
             
     return result
@@ -168,23 +175,23 @@ def ToAcqPo(threads):
     
     for thread in threads:
         for i in range(len(thread)):
-            if thread[i].strength == "Acquire" and thread[i].type != "Fence":
+            if thread[i].strength == MemoryOrder.ACQUIRE and thread[i].type != Operation.FENCE:
                 for j in range(i + 1, len(thread)):
-                    if thread[j].type != "Fence":
+                    if thread[j].type != Operation.FENCE:
                         result.append(Relation(thread[i], thread[j]))
                     else:
                         for k in range(j + 1, len(thread)):
-                            if thread[k].type != "Fence":
+                            if thread[k].type != Operation.FENCE:
                                 result.append(Relation(thread[i], thread[j], thread[k]))
-            elif thread[i].strength == "Acquire" and thread[i].type == "Fence":
+            elif thread[i].strength == MemoryOrder.ACQUIRE and thread[i].type == Operation.FENCE:
                 for j in range(i):
-                    if thread[j].type == "Read" or thread[j].type == "RMW":
+                    if thread[j].type == Operation.READ or thread[j].type == Operation.RMW:
                         for k in range(i + 1, len(thread)):
-                            if thread[k].type != "Fence":
+                            if thread[k].type != Operation.FENCE:
                                 result.append(Relation(thread[j], thread[i], thread[k]))
                             else:
                                 for l in range(k + 1, len(thread)):
-                                    if thread[l].type != "Fence":
+                                    if thread[l].type != Operation.FENCE:
                                         result.append(Relation(thread[j], thread[i], thread[k], thread[l]))
                                 
     
@@ -194,11 +201,11 @@ def ToStrongFence(threads):
     result = []
     for thread in threads:
         for i in range(len(thread)):
-            if thread[i].type == "Fence" and thread[i].strength == "SC":
+            if thread[i].type == Operation.FENCE and thread[i].strength == MemoryOrder.SEQ_CST:
                 for j in range(i):
-                    if thread[j].type != "Fence":
+                    if thread[j].type != Operation.FENCE:
                         for k in range(i + 1, len(thread)):
-                            if thread[k].type != "Fence":
+                            if thread[k].type != Operation.FENCE:
                                 result.append(Relation(thread[j], thread[i], thread[k]))
                             
     return result
@@ -225,7 +232,7 @@ def ToST(threads, rf):
     
     # rel ; rfe ; acq
     for r in rfe:
-        if (r.First().strength == "Release" or r.First().language == "Linux") and (r.Last().strength == "Acquire" or r.Last().language == "Linux"):
+        if (r.First().strength == MemoryOrder.RELEASE or r.First().language == Language.LINUX) and (r.Last().strength == MemoryOrder.ACQUIRE or r.Last().language == Language.LINUX):
             result.append(r)
     
     po_rel = ToPoRel(threads)
@@ -238,12 +245,12 @@ def ToST(threads, rf):
                 for ap in acq_po:
                     if r.Composes(acq_po):
                         result.append(Relation(pr, r, ap))
-                if r.Last().strength == "Acquire" or r.Last().language == "Linux":
+                if r.Last().strength == MemoryOrder.ACQUIRE or r.Last().language == Language.LINUX:
                     result.append(Relation(pr, r))
     
     # rel ; rfe ; acq-po
     for r in rfe:
-        if r.First().strength == "Release" or r.First().language == "Linux":
+        if r.First().strength == MemoryOrder.RELEASE or r.First().language == Language.LINUX:
             for ap in acq_po:
                 if r.Composes(acq_po):
                     result.append(Relation(pr, r, ap))
@@ -312,6 +319,7 @@ def ToHappensBefore(e):
     for rel in e.prop:
         if InInt(e.threads, rel) and not InEmpty(rel):
             prop_int_nonempty.append(rel)
+
     rel = e.ppo + e.st + prop_int_nonempty
     
     edges = []
@@ -393,10 +401,10 @@ def PropagatesBefore(e):
 
 # Message Passing using release and acquire accesses
 # Should there exist "Events" for the initialization of x and y?
-T1_1 = Event(1, "y", "Write", "Relaxed", "C", 1, None)
-T1_2 = Event(2, "x", "Write", "Release", "C", 1, None)
-T2_1 = Event(3, "x", "Read", "Acquire", "C", 1, "r0")
-T2_2 = Event(4, "y", "Read", "Relaxed", "C", 0, "r1")
+T1_1 = Event(1, "y", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 1, None)
+T1_2 = Event(2, "x", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
+T2_1 = Event(3, "x", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r0")
+T2_2 = Event(4, "y", Operation.READ, MemoryOrder.RELAXED, Language.C, 0, "r1")
 T1 = [T1_1, T1_2]
 T2 = [T2_1, T2_2]
 threads = [T1, T2]
@@ -420,12 +428,12 @@ print("Is Message Passing disallowed?", HappensBefore(mp))
 # prop = [Relation(Relation(6, 1), Relation(Relation(1, 2), Relation(2, 3, 4)), Relation(4, 5))]
 # prop_int_nonempty = [Relation(Relation(6, 1), Relation(Relation(1, 2), Relation(2, 3, 4)), Relation(4, 5))] #(6, 1) is eco, (4, 5) is st (i.e. rfe in Linux), and the nested relation in the middle is the cumul-fence*
 
-T1_1 = Event(1, "x", "Write", "Relaxed", "C", 2, None)
-T1_2 = Event(2, "y", "Write", "Release", "C", 1, None)
-T2_1 = Event(3, "y", "Read", "Acquire", "C", 1, "r0")
-T2_2 = Event(4, "z", "Write", "Release", "C", 1, None)
-T3_1 = Event(5, "z", "Read", "Acquire", "C", 1, "r1")
-T3_2 = Event(6, "x", "Write", "Relaxed", "C", 1, None)
+T1_1 = Event(1, "x", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 2, None)
+T1_2 = Event(2, "y", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
+T2_1 = Event(3, "y", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r0")
+T2_2 = Event(4, "z", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
+T3_1 = Event(5, "z", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r1")
+T3_2 = Event(6, "x", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 1, None)
 T1 = [T1_1, T1_2]
 T2 = [T2_1, T2_2]
 T3 = [T3_1, T3_2]
@@ -461,14 +469,13 @@ prop = ...
 
 def convert_to_events(parsed_threads):
     events = []
-    event_id = 0
 
-    for thread in parsed_threads:
+    for id, thread in enumerate(parsed_threads):
         thread_events = []
+        threadIdIterator = IterativeIdentifier(id)
         for line in thread:
-            event = parse_event(line, event_id)
+            event = parse_event(line, threadIdIterator.next_id())
             thread_events.append(event)
-            event_id += 1
         events.append(thread_events)
 
     return events
@@ -487,7 +494,13 @@ def parse_event(line, identifier):
     if not match:
         raise ValueError(f"Cannot parse line: {line}")
 
-    event_type = match.group(1)
+    _event_type = match.group(1)
+
+    try:
+        event_type = Operation[_event_type.upper()]
+    except KeyError:
+        print(f"{_event_type} is not a supported Operation")
+    
     args = [arg.strip() for arg in match.group(2).split(",") if arg.strip()]
 
     location = None
@@ -501,22 +514,51 @@ def parse_event(line, identifier):
     if len(args) >= 2:
         value = args[1]
     if len(args) >= 3:
-        strength = args[2]
+        try:
+            strength = MemoryOrder[args[2].upper()]
+        except KeyError:
+            print(f"{args[2]} is not a supported MemoryOrder/Strength")
     if len(args) >= 4:
-        language = args[3]
+        try:
+            language = Language[args[3].upper()]
+        except KeyError:
+            print(f"{args[3]} is not a support Language")
     if len(args) >= 5:
-        register = args[4]
+        register = global_registers.newRegister(identifier.getThreadId(), args[4])
 
     return Event(identifier, location, event_type, strength, language, value, register)
 
-
+def process_init_vals(line):
+    # get rid of the braces
+    line = line.replace("{", "").replace("}", "").strip()
+    # split into individual inits
+    inits = line.split(";")
+    
+    inits = [_ for _ in inits if _.strip()]
+    
+    initializations = []
+    
+    initIdIterator = IterativeIdentifier(thread_id=100)
+    
+    for init in inits:
+        loc, val = init.split(" = ")
+        
+        initializations.append(Event(initIdIterator.next_id(), loc.strip(), Operation.WRITE, MemoryOrder.INITIAL, Language.C, int(val), None))
+    
+    return initializations
+    
 def parse_file(filename):
     threads = []
     current_thread = None
+    initializations = []
+    constraints = []
 
     with open(filename, "r") as f:
         for line in f:
             line = line.strip()
+
+            if line.startswith("{") and line.endswith("}"):
+                initializations = process_init_vals(line)
 
             # Start of a new thread
             if line.startswith("P") and line.endswith("{"):
@@ -531,57 +573,89 @@ def parse_file(filename):
             # Inside a thread: collect statements
             elif current_thread is not None and line:
                 current_thread.append(line)
+                
+            elif (line.startswith("(") and line.endswith(")")) or line.startswith("exists"):
+                constraints = parse_final_constraint(line)
 
-    return threads
+    return threads, initializations, constraints
 
 def parse_final_constraint(line):
     """
-    Parses: (r0 = 1 /\ r1 = 1)
+    Parses: (r0 = 1 /\\ r1 = 1)
     Returns: {'r0': 1, 'r1': 1}
     """
-    line = line.strip()
-
     # Remove surrounding parentheses
-    if line.startswith("(") and line.endswith(")"):
-        line = line[1:-1]
+    line = line.replace('exists', '').strip().strip("()")
+       
+    or_clauses = re.split(r'\\/', line)
+    
+    final_clauses = []
+    
+    for or_clause in or_clauses:
+        or_clause = or_clause.strip().strip("()")
+        
+        and_clauses = re.split(r'/\\', or_clause)
+        
+        condition_set = {}
+        for clause in and_clauses:
+            if '=' in clause:
+                reg, val = clause.split("=")
+                condition_set[reg.strip()] = int(val.strip())
+                
+        if condition_set:
+            final_clauses.append(condition_set)
 
-    clauses = [c.strip() for c in line.split("/\\")]
-    result = {}
-
-    for clause in clauses:
-        reg, val = clause.split("=")
-        result[reg.strip()] = int(val.strip())
-
-    return result
+    return final_clauses
 
 def apply_read_values(threads, read_values):
     """
     processes: list[list[Event]]
     read_values: dict like {'r0': 1, 'r1': 1}
     """
+    
+    # print("read_values", read_values)
+    
     for thread in threads:
         for event in thread:
-            if event.type == "Read" and event.register in read_values:
-                event.value = read_values[event.register]
+            # use the register's repr (e.g. 'r0') as the key into read_values
+            reg_key = None
+            if event.register is not None:
+                try:
+                    reg_key = event.register.__repr__()
+                except Exception:
+                    reg_key = str(event.register)
 
-def rf_candidates(processes):
+            if event.type == Operation.READ and reg_key is not None and reg_key in read_values[0]:
+                event.value = read_values[0][reg_key]
+
+def rf_candidates(processes, inits):
     """
     Returns:
       dict[ReadEvent] = [WriteEvent, ...]
     """
     loc_writes = writes_by_location(processes)
+    
+    # print(1, loc_writes)
+    
     locations = list(loc_writes.keys())
     
-    writes = [Event(-1, loc, "Write", "Relaxed", "Linux", 0, None) for loc in locations]
+    # writes = [Event(-1, loc, "Write", "Relaxed", "Linux", 0, None) for loc in locations]
+    writes = inits.copy()
     reads = []
 
     for process in processes:
         for e in process:
-            if e.type == "Write":
+            if e.type == Operation.WRITE:
                 writes.append(e)
-            elif e.type == "Read":
+            elif e.type == Operation.READ:
                 reads.append(e)
     candidates = defaultdict(list)
+
+    # print("reads")
+    # pprint(reads)
+    
+    # print("writes")
+    # pprint(writes)
 
     for r in reads:
         for w in writes:
@@ -590,7 +664,7 @@ def rf_candidates(processes):
                 # print("diff location")
                 continue
             # Read value constrained
-            if r.value != "None":
+            if r.value is not None:
                 # print("constrained")
                 if str(w.value) == str(r.value):
                     # print("constrained correct")
@@ -600,7 +674,8 @@ def rf_candidates(processes):
                 # print("candidate found")
                 candidates[r].append(w)
                 
-    # print("rf_candidates", candidates)
+    # print("rf_candidates")
+    # pprint(candidates)
     return candidates
 
 def enumerate_rf_relations(processes, rf_candidates):
@@ -640,7 +715,7 @@ def writes_by_location(processes):
 
     for process in processes:
         for e in process:
-            if e.type == "Write":
+            if e.type == Operation.WRITE:
                 loc_writes[e.location].append(e)
 
     return loc_writes
@@ -656,13 +731,18 @@ def co_from_order(order):
             co.append(Relation(order[i], order[j]))
     return co
 
-def enumerate_co_relations(processes):
+def enumerate_co_relations(processes, inits):
     loc_writes = writes_by_location(processes)
     per_loc_orders = []
+    
+    def find_init_for_loc(loc):
+        for init in inits:
+            if init.location == loc:
+                return init
 
     for loc, writes in loc_writes.items():
-        init = Event(-1, loc, "Write", "Relaxed", "Linux", 0, None)
-
+        init = find_init_for_loc(loc)
+        
         if len(writes) <= 1:
             # One possible order
             per_loc_orders.append([[init] + writes])
@@ -712,16 +792,193 @@ def generate_fr_relations(rf, co):
 
     return fr
 
-parsed = parse_file("./litmus/ISA2+pooncerelease+poacquirerelease+poacquireonce.litmus")
+def constraints_to_strings(constraints):
+    r"""Convert constraints list back to string format like (r0 = 1 /\ r1 = 1)"""
+    if not constraints:
+        return ""
+    
+    or_clauses = []
+    for constraint_set in constraints:
+        and_clauses = []
+        for reg, val in constraint_set.items():
+            and_clauses.append(f"{reg} = {val}")
+        or_clauses.append(r" /\ ".join(and_clauses))
+    
+    if len(or_clauses) == 1:
+        return f"exists ({or_clauses[0]})"
+    else:
+        return f"exists ({r' \/ '.join(or_clauses)})"
+
+def inits_to_string(initializations):
+    """Convert initialization events to string format like { [x] = 0; [y] = 0; }"""
+    if not initializations:
+        return "{}"
+    
+    init_strs = []
+    for event in initializations:
+        # Location already has brackets from parsing, use as-is
+        init_strs.append(f"{event.location} = {event.value}")
+    
+    return "{ " + "; ".join(init_strs) + "; }"
+    
+def events_to_string(event):
+    """Convert an Event back to string format like Read(y, None, Relaxed, C, r0);"""
+    parts = [event.location]
+    
+    # Add value parameter
+    if event.type == Operation.READ:
+        parts.append("None" if event.value is None else str(event.value))
+    elif event.type == Operation.WRITE:
+        parts.append(str(event.value))
+    
+    # Add strength/memory order
+    if event.strength:
+        parts.append(event.strength.name.capitalize())
+    
+    # Add language
+    if event.language:
+        parts.append(event.language.name)
+    
+    # Add register (only for reads)
+    if event.register is not None:
+        parts.append(event.register.id)
+    
+    op_name = event.type.name.capitalize()
+    return f"{op_name}({', '.join(parts)});"
+
+# Reverse the parsing we've done, output an identical litmus test, 
+# But add // comments with event IDs for each event
+def extract_all_locations(converted):
+    """
+    Extract all unique memory locations from the converted events list.
+    
+    Args:
+        converted: list[list[Event]] - A list of threads, where each thread is a list of Events
+    
+    Returns:
+        list - A list of unique memory locations
+    """
+    mem_locations = set()
+    
+    for thread in converted:
+        for event in thread:
+            if event.type == Operation.READ or event.type == Operation.WRITE:
+                mem_locations.add(event.location)
+    
+    return list(mem_locations)
+
+def initialize_all_locations(initialization_events, mem_locations):
+    """
+    Create initialization events for memory locations that haven't been initialized.
+    
+    Args:
+        initialization_events: list[Event] - The existing initialization events
+        mem_locations: list - A list of all memory locations that need initialization
+    
+    Returns:
+        list[Event] - Updated list of initialization events with any missing locations initialized to 0
+    """
+    # Get set of already initialized locations
+    initialized_locs = {event.location for event in initialization_events}
+    
+    # Create initialization events for uninitialized locations
+    initIdIterator = IterativeIdentifier(thread_id=100)
+    # Move past existing init IDs
+    for _ in initialization_events:
+        initIdIterator.next_id()
+    
+    new_inits = list(initialization_events)
+    
+    for loc in mem_locations:
+        if loc not in initialized_locs:
+            new_inits.append(Event(
+                initIdIterator.next_id(), 
+                loc, 
+                Operation.WRITE, 
+                MemoryOrder.INITIAL, 
+                Language.C, 
+                0, 
+                None
+            ))
+    
+    return new_inits
+
+def output_processed_litmus(inits, events, constraints):
+    
+    # Create 'processed' directory if it doesn't exist
+    os.makedirs('processed', exist_ok=True)
+    
+    # Generate output filename in the 'processed' directory
+    filename = os.path.basename(input_filename).split('.')
+    filename[0] += "_processed"
+    output_filename = os.path.join('processed', '.'.join(filename))
+    
+    with open(output_filename, 'w+') as f:
+        # Write initializations
+        f.write(inits_to_string(inits) + "\n\n")
+        
+        # Write threads
+        for thread_idx, thread in enumerate(events):
+            # Get unique location names from events in this thread
+            locations = []
+            seen = set()
+            for event in thread:
+                if event.location not in seen:
+                    # Strip brackets from location for thread signature
+                    loc = event.location.strip('[]')
+                    locations.append(loc)
+                    seen.add(event.location)
+            
+            # Sort locations alphabetically to match expected format
+            locations.sort()
+            
+            f.write(f"P{thread_idx}({', '.join(locations)}) {{\n")
+            
+            for event in thread:
+                event_str = events_to_string(event)
+                f.write(f"{event_str} // Event {str(event.identifier)}\n")
+            
+            f.write("}\n\n")
+        
+        # Write constraints
+        f.write(constraints_to_strings(constraints) + "\n")
+        
+    
+
+print("============================================")
+
+# Allow specifying the litmus input file on the command line (positional, optional)
+parser = argparse.ArgumentParser(description="Run a litmus test file")
+parser.add_argument('input', nargs='?', default='input_test.litmus', help='Path to litmus test file')
+args = parser.parse_args()
+input_filename = args.input
+
+parsed, initialization_events, constraints = parse_file(input_filename)
 # print(parsed)
+# print(initialization_events)
+# print(constraints)
+
+global_registers = GlobalRegisters(len(parsed))
+
 converted = convert_to_events(parsed)
 # print("converted =", converted)
-apply_read_values(converted, parse_final_constraint("(r0=1 /\ r1=1 /\ r2=0)"))
-rf = enumerate_rf_relations(converted, rf_candidates(converted)) # get final line from file?
-# print("rf", rf)
-co = enumerate_co_relations(converted)
-# print("co", co)
+
+mem_locations = extract_all_locations(converted)
+initialization_events = initialize_all_locations(initialization_events, mem_locations)
+
+
+# print(initialization_events)
+# print(global_registers)
+output_processed_litmus(initialization_events, converted, constraints)
+
+apply_read_values(converted, constraints)
+
+rf = enumerate_rf_relations(converted, rf_candidates(converted, initialization_events)) # get final line from file?
+print("rf", rf)
+co = enumerate_co_relations(converted, initialization_events)
+print("co", co)
 fr = []
+
 for rf_i in rf:
     for co_j in co:
         fr = generate_fr_relations(rf_i, co_j)

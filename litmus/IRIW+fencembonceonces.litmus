@@ -4,7 +4,7 @@ P0(int *x) {
 
 P1(int *x, int *y) {
 	Read(x, None, Relaxed, Linux, r0);
-	Fence(None, None, SC, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(y, None, Relaxed, Linux, r1);
 }
 
@@ -14,7 +14,7 @@ P2(int *y) {
 
 P3(int *x, int *y) {
 	Read(y, None, Relaxed, Linux, r2);
-	Fence(None, None, SC, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(x, None, Relaxed, Linux, r3);
 }
 
