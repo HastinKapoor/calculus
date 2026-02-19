@@ -7,14 +7,15 @@ Write(*x, 1, Relaxed, Linux, None);
 
 P1(int *y, int *z){
 
-	Read(y, None, Acquire, Linux, r0_T1);
+	Read(y, None, Acquire, Linux, r0);
 	Write(z, 1, Release, Linux, None);
 }
 
 P2(int *x, int *z){
 
-	Read(z, None, Acquire, Linux, r0_T2);
+	Write(*z, 2, Relaxed, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(*x, None, Relaxed, Linux, r1);
 }
 
-exists (r0_T1=1 /\ r0_T2=1 /\ r1=0)
+exists (r0=1 /\ z=2 /\ r1=0)

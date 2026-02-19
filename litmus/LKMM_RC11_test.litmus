@@ -1,0 +1,16 @@
+{}
+
+P0(int *x, int *y){
+
+	r0_T0 = *x;
+
+	*x = 1;
+}
+
+P1(int *x, int *y){
+
+	r0_T1 = *x;
+	*x = 2;
+}
+
+exists (r0_T0=2 /\ r0_T1=1)

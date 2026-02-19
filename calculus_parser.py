@@ -2,6 +2,7 @@ import re
 import itertools
 from collections import defaultdict
 
+# TODO: co order from final constraint
 
 class Event:
     # Identifier distinguishes two identical operations in different threads or thread positions

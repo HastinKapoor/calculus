@@ -13,7 +13,7 @@ import os
 class Event:
     # Identifier distinguishes two identical operations in different threads or thread positions
     # Forces values to be ints
-    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int, register):
+    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register):
         self.identifier = identifier
         self.location = location
         self.type = type
@@ -113,11 +113,11 @@ r2 = Relation(4, 5, r1)
 r3 = Relation(r2, 6, 7)
 r4 = Relation(0, r2)
 
-print("First of r2:", r2.First())
-print("Last of r2:", r2.Last())
+# print("First of r2:", r2.First())
+# print("Last of r2:", r2.Last())
 
-print("r2 composes with r3:", r2.Composes(r3))
-print("r4 composes with r3:", r4.Composes(r3))
+# print("r2 composes with r3:", r2.Composes(r3))
+# print("r4 composes with r3:", r4.Composes(r3))
 
 def InEmpty(rel):
     example = rel.Initial()
@@ -210,12 +210,38 @@ def ToStrongFence(threads):
                             
     return result
 
+def ToWMB(threads):
+    result = []
+    for thread in threads:
+        for i in range(len(thread)):
+            if thread[i].type == Operation.FENCE and thread[i].strength == MemoryOrder.WMB:
+                for j in range(i):
+                    if thread[j].type == Operation.WRITE:
+                        for k in range(i + 1, len(thread)):
+                            if thread[k].type == Operation.WRITE:
+                                result.append(Relation(thread[j], thread[i], thread[k]))
+                                
+    return result
+
+def ToRMB(threads):
+    result = []
+    for thread in threads:
+        for i in range(len(thread)):
+            if thread[i].type == Operation.FENCE and thread[i].strength == MemoryOrder.RMB:
+                for j in range(i):
+                    if thread[j].type == Operation.READ:
+                        for k in range(i + 1, len(thread)):
+                            if thread[k].type == Operation.READ:
+                                result.append(Relation(thread[j], thread[i], thread[k]))
+                                
+    return result
+
 # Incomplete. There exist more PPOs than will be computed here, but these are "sufficient" for small litmus tests
-# po-rel, acq-po, strong-fence
+# po-rel, acq-po, strong-fence, WMB, RMB
 def ToPPO(threads):
     result = []
     
-    result += ToPoRel(threads) + ToAcqPo(threads) + ToStrongFence(threads)
+    result += ToPoRel(threads) + ToAcqPo(threads) + ToStrongFence(threads) + ToWMB(threads) + ToRMB(threads)
     
     return result
 
@@ -401,25 +427,25 @@ def PropagatesBefore(e):
 
 # Message Passing using release and acquire accesses
 # Should there exist "Events" for the initialization of x and y?
-T1_1 = Event(1, "y", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 1, None)
-T1_2 = Event(2, "x", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
-T2_1 = Event(3, "x", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r0")
-T2_2 = Event(4, "y", Operation.READ, MemoryOrder.RELAXED, Language.C, 0, "r1")
-T1 = [T1_1, T1_2]
-T2 = [T2_1, T2_2]
-threads = [T1, T2]
-rf = [Relation(T1_2, T2_1)]
-fr = [Relation(T2_2, T1_1)]
-co = []
+# T1_1 = Event(1, "y", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 1, None)
+# T1_2 = Event(2, "x", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
+# T2_1 = Event(3, "x", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r0")
+# T2_2 = Event(4, "y", Operation.READ, MemoryOrder.RELAXED, Language.C, 0, "r1")
+# T1 = [T1_1, T1_2]
+# T2 = [T2_1, T2_2]
+# threads = [T1, T2]
+# rf = [Relation(T1_2, T2_1)]
+# fr = [Relation(T2_2, T1_1)]
+# co = []
 
 # Message Passing using integers instead of Events. A first test that Happens Before and Relation are working.
-ppo = [Relation(1, 2), Relation (3, 4)]
-st = [Relation(2, 3)]
-prop_int_nonempty = [Relation(Relation(4, 1), Relation(1, 2), Relation(2, 3))] # Techincally, (1, 2), (3, 4), (2, 1), and (4, 3) are in prop, but the provided relation is the important one
+# ppo = [Relation(1, 2), Relation (3, 4)]
+# st = [Relation(2, 3)]
+# prop_int_nonempty = [Relation(Relation(4, 1), Relation(1, 2), Relation(2, 3))] # Techincally, (1, 2), (3, 4), (2, 1), and (4, 3) are in prop, but the provided relation is the important one
 
-mp = Execution(threads, rf, fr, co)
+# mp = Execution(threads, rf, fr, co)
 
-print("Is Message Passing disallowed?", HappensBefore(mp))
+# print("Is Message Passing disallowed?", HappensBefore(mp))
 
 # An example using a more complicated prop relation
 # ppo + st is almost sufficient, but the (6, 1) relation is missing (e.g. an overwrite instead of rfe) and thus the cycle requires prop
@@ -428,22 +454,22 @@ print("Is Message Passing disallowed?", HappensBefore(mp))
 # prop = [Relation(Relation(6, 1), Relation(Relation(1, 2), Relation(2, 3, 4)), Relation(4, 5))]
 # prop_int_nonempty = [Relation(Relation(6, 1), Relation(Relation(1, 2), Relation(2, 3, 4)), Relation(4, 5))] #(6, 1) is eco, (4, 5) is st (i.e. rfe in Linux), and the nested relation in the middle is the cumul-fence*
 
-T1_1 = Event(1, "x", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 2, None)
-T1_2 = Event(2, "y", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
-T2_1 = Event(3, "y", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r0")
-T2_2 = Event(4, "z", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
-T3_1 = Event(5, "z", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r1")
-T3_2 = Event(6, "x", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 1, None)
-T1 = [T1_1, T1_2]
-T2 = [T2_1, T2_2]
-T3 = [T3_1, T3_2]
-threads = [T1, T2, T3]
-rf = [Relation(T1_2, T2_1), Relation(T2_2, T3_1)]
-fr = []
-co = [Relation(T3_2, T1_1)]
+# T1_1 = Event(1, "x", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 2, None)
+# T1_2 = Event(2, "y", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
+# T2_1 = Event(3, "y", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r0")
+# T2_2 = Event(4, "z", Operation.WRITE, MemoryOrder.RELEASE, Language.C, 1, None)
+# T3_1 = Event(5, "z", Operation.READ, MemoryOrder.ACQUIRE, Language.C, 1, "r1")
+# T3_2 = Event(6, "x", Operation.WRITE, MemoryOrder.RELAXED, Language.C, 1, None)
+# T1 = [T1_1, T1_2]
+# T2 = [T2_1, T2_2]
+# T3 = [T3_1, T3_2]
+# threads = [T1, T2, T3]
+# rf = [Relation(T1_2, T2_1), Relation(T2_2, T3_1)]
+# fr = []
+# co = [Relation(T3_2, T1_1)]
 
-prop_cycle = Execution(threads, rf, fr, co)
-print("Is prop_cycle disallowed?", HappensBefore(prop_cycle))
+# prop_cycle = Execution(threads, rf, fr, co)
+# print("Is prop_cycle disallowed?", HappensBefore(prop_cycle))
 # print("Would it be disallowed without ppo?", HappensBefore(Execution([], st, prop_int_nonempty))) # No, because prop only relates from 6 to 5, ppo relates 5 to 6
 # print("Would it be disallowed without st?", HappensBefore(Execution(ppo, [], prop_int_nonempty))) # Yes, because ppo + prop is sufficient in this cycle
 # print("Would it be disallowed without prop?", HappensBefore(Execution(ppo, st, []))) # No
@@ -505,8 +531,8 @@ def parse_event(line, identifier):
 
     location = None
     value = None
-    strength = None
-    language = None
+    strength = MemoryOrder.RELAXED
+    language = Language.C
     register = None
 
     if len(args) >= 1:

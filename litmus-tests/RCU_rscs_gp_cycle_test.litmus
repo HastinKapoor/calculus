@@ -1,0 +1,28 @@
+C RCU_rscs_gp_cycle_test
+
+// hb is not a subset of link, so this test being allowed doesn't violate any properties of RCU
+// On all architectures except Alpha, rcu_dereference() is equivalent to READ_ONCE(), at least according to the model
+
+{}
+
+P0(int *x, int *y, int *z) {
+	rcu_read_lock();
+	int r0 = READ_ONCE(*y);
+	WRITE_ONCE(*x, 1);
+	rcu_read_unlock();
+}
+
+P1(int *x, int *y, int *z) {
+	int r0 = READ_ONCE(*x);
+	synchronize_rcu();
+	WRITE_ONCE(*z, 1);
+}
+
+P2(int *x, int *y, int *z) {
+	rcu_read_lock();
+	int r0 = READ_ONCE(*z);
+	WRITE_ONCE(*y, 1);
+	rcu_read_unlock();
+}
+
+exists (0:r0=1 /\ 1:r0=1 /\ 2:r0=1)

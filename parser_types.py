@@ -16,6 +16,8 @@ class MemoryOrder(Enum):
     RELEASE = 3
     ACQ_REL = 4
     SEQ_CST = 5
+    WMB = 6
+    RMB = 7
     
 class Language(Enum):
     C = 1
@@ -80,6 +82,8 @@ class GlobalRegisters:
             self.perThreadRegisters[thread_id].append(new_register)
             self.allRegisters[new_register] = thread_id
             return new_register
+        
+        exit(0)
             
     # def newRegisterForThread(self, thread_id: int) -> Register:
     #     register_id = len(self.perThreadRegisters[thread_id])
