@@ -21,4 +21,4 @@ P3(x3, u0) {
 	Read(u0, None, Relaxed, Linux, r3);
 }
 
-exists (r3=0 /\ r0=1 /\ r1=1 /\ r3=1)
+exists (r3=0 /\ r0=1 /\ r1=1 /\ r2=1)

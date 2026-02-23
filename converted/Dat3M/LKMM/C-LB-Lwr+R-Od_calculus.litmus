@@ -10,4 +10,4 @@ P1(x1) {
 	Read(r1, None, Relaxed, Linux, r1);
 }
 
-exists (r0=0 /\ r0=u0)
+exists (r1=0 /\ r0=u0)

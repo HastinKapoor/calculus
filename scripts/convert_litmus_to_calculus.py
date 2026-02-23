@@ -275,15 +275,9 @@ def convert_constraint_text(
 
     expr = text.strip()[1:-1].strip()
 
-    def replace_thread_prefixed(match: re.Match[str]) -> str:
-        thread_id = int(match.group(1))
-        src_reg = match.group(2)
-        mapped = thread_reg_maps.get(thread_id, {}).get(src_reg)
-        return mapped if mapped else match.group(0)
-
-    expr = re.sub(r"\b(\d+):([A-Za-z_][A-Za-z0-9_]*)\b", replace_thread_prefixed, expr)
-
     # For unprefixed register constraints, rewrite only when the source name is unique.
+    # Run this before thread-prefixed rewrites so converted output-register names are not
+    # rewritten again due source-name collisions.
     reverse_map: Dict[str, Set[str]] = {}
     for reg_map in thread_reg_maps.values():
         for src_name, out_name in reg_map.items():
@@ -296,7 +290,15 @@ def convert_constraint_text(
             return f"{next(iter(outs))}="
         return match.group(0)
 
-    expr = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=", replace_unprefixed_lhs, expr)
+    expr = re.sub(r"(?<!:)\b([A-Za-z_][A-Za-z0-9_]*)\s*=", replace_unprefixed_lhs, expr)
+
+    def replace_thread_prefixed(match: re.Match[str]) -> str:
+        thread_id = int(match.group(1))
+        src_reg = match.group(2)
+        mapped = thread_reg_maps.get(thread_id, {}).get(src_reg)
+        return mapped if mapped else match.group(0)
+
+    expr = re.sub(r"\b(\d+):([A-Za-z_][A-Za-z0-9_]*)\b", replace_thread_prefixed, expr)
     return f"exists ({expr})"
 
 

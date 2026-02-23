@@ -31,4 +31,4 @@ P5(u0, v0) {
 	Write(u0, 1, Relaxed, Linux, None);
 }
 
-exists (r5=0 /\ r0=1 /\ r1=x2 /\ r5=x3 /\ r3=x4 /\ r4=v0)
+exists (r5=0 /\ r0=1 /\ r1=x2 /\ r2=x3 /\ r3=x4 /\ r4=v0)

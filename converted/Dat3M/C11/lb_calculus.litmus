@@ -10,4 +10,4 @@ P1(x, y) {
 	Write(x, 1, Relaxed, C, None);
 }
 
-exists (r0=1 /\ r0=1)
+exists (r0=1 /\ r1=1)

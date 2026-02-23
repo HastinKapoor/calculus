@@ -24,4 +24,4 @@ P4(v0, u0) {
 	Write(u0, 1, Relaxed, Linux, None);
 }
 
-exists (r4=0 /\ r0=1 /\ r1=1 /\ r4=1 /\ r3=1)
+exists (r4=0 /\ r0=1 /\ r1=1 /\ r2=1 /\ r3=1)

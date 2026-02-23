@@ -30,4 +30,4 @@ P5(u0, v0) {
 	Read(u0, None, Relaxed, Linux, r5);
 }
 
-exists (r4=1 /\ r5=0 /\ r0=x2 /\ r1=1 /\ r5=1 /\ r3=1)
+exists (r4=1 /\ r5=0 /\ r0=x2 /\ r1=1 /\ r2=1 /\ r3=1)
