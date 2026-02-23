@@ -1,0 +1,11 @@
+{ [x] = 0; [y] = 0; [p] = 0; [q] = 0; }
+
+P0(x, y, p, q) {
+	Read(x, None, Relaxed, C, r0);
+}
+
+P1(x, y, p, q) {
+	Read(y, None, Relaxed, C, r1);
+}
+
+exists (p=1 /\ q=1)

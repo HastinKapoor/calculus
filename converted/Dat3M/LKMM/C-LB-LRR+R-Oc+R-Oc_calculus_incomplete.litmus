@@ -1,0 +1,18 @@
+P0(u0, x1) {
+	Read(u0, None, Relaxed, Linux, r0);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(x1, x2) {
+	Read(x1, None, Relaxed, Linux, r1);
+}
+
+P2(x2, u0) {
+	Read(x2, None, Relaxed, Linux, r2);
+}
+
+P3(u0) {
+	Write(u0, 1, Relaxed, Linux, None);
+}
+
+exists (r0=1 /\ 2:r2=0 /\ r1=1 /\ r2=1)

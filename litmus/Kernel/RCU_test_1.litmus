@@ -1,0 +1,32 @@
+C RCU_test_1
+
+// Within a lock, a reader can get an inconsistent view of a variable (y gets updated during the read lock)
+
+{
+int x = 1;
+int *y = &x;
+int z = 2;
+}
+
+P0(int *x, int *z, int **y)
+{
+	int *r0;
+	int r1;
+	int *r2;
+	int r3;
+
+	rcu_read_lock();
+	r0 = rcu_dereference(*y);
+	r1 = READ_ONCE(*r0);
+	r2 = rcu_dereference(*y);
+	r3 = READ_ONCE(*r2);
+	rcu_read_unlock();
+}
+
+P1(int *x, int *z, int **y)
+{
+	rcu_assign_pointer(*y, z);
+	synchronize_rcu();
+}
+
+exists (0:r1=1 /\ 0:r3=2)

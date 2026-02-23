@@ -1,0 +1,36 @@
+P0(x0, x1) {
+	Write(x0, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(x1, 1, Relaxed, Linux, None);
+}
+
+P1(x1, x2) {
+	Write(x1, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(x2, 1, Relaxed, Linux, None);
+}
+
+P2(x2, x3) {
+	Write(x2, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(x3, 1, Relaxed, Linux, None);
+}
+
+P3(x3, x4) {
+	Write(x3, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(x4, 1, Relaxed, Linux, None);
+}
+
+P4(x4, x5) {
+	Write(x4, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(x5, 1, Relaxed, Linux, None);
+}
+
+P5(x0, x5) {
+	Write(x5, 2, Relaxed, Linux, None);
+	Write(x0, 1, Relaxed, Linux, None);
+}
+
+exists (x0=2 /\ x1=2 /\ x2=2 /\ x3=2 /\ x4=2 /\ x5=2)

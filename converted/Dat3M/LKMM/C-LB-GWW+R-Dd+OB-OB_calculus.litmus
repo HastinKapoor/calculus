@@ -1,0 +1,26 @@
+{ [x1] = y1; }
+
+P0(u0, x1, x2) {
+	Write(u0, 3, Relaxed, Linux, None);
+	Write(x1, x2, Release, Linux, None);
+}
+
+P1(x1) {
+	Read(x1, None, Acquire, Linux, r0);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(r1, 1, Relaxed, Linux, None);
+}
+
+P2(x2, v0) {
+	Read(x2, None, Relaxed, Linux, r1);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(v0, 1, Relaxed, Linux, None);
+}
+
+P3(u0, v0) {
+	Read(v0, None, Relaxed, Linux, r2);
+	Fence(None, None, Seq_cst, Linux, None);
+	Read(u0, None, Relaxed, Linux, r3);
+}
+
+exists (r3=1 /\ r3=0 /\ r0=x2 /\ r1=1)

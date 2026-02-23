@@ -1,0 +1,11 @@
+P0(u0, x1) {
+	Write(u0, 3, Relaxed, Linux, None);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(u0, x1) {
+	Read(x1, None, Acquire, Linux, r0);
+	Read(u0, None, Relaxed, Linux, r1);
+}
+
+exists (r0=0 /\ r0=1)

@@ -1,0 +1,15 @@
+{ [a] = 0; [x] = 0; [y] = 0; }
+
+P0(a) {
+	Write(a, 1, Relaxed, C, None);
+}
+
+P1(a, x, y) {
+	Read(x, None, Relaxed, C, r0);
+}
+
+P2(x, y) {
+	Read(y, None, Relaxed, C, r1);
+}
+
+exists (a=1 /\ x=1 /\ y=1)

@@ -1,0 +1,16 @@
+P0(u0, x1) {
+	Read(u0, None, Relaxed, Linux, r0);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(v0, x1) {
+	Read(x1, None, Relaxed, Linux, r1);
+}
+
+P2(u0, v0) {
+	Read(v0, None, Relaxed, Linux, r2);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(u0, 1, Relaxed, Linux, None);
+}
+
+exists (r2=1 /\ r0=1 /\ r1=1)

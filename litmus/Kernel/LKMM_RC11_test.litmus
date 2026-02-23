@@ -1,0 +1,35 @@
+C read_write_control_dependency
+
+{}
+
+P0(int *x, int *y)
+{	
+	int r0;
+	
+	r0 = *x;
+//	smp_mb();
+//	WRITE_ONCE(*y, 1);
+//	smp_store_release(y, 1);
+	*x = 1;
+}
+
+P1(int *x, int *y)
+{
+	int r0;
+//	int r1;
+//	int z0;
+//	int z1;
+
+	r0 = *x;
+	*x = 2;
+
+//	r0 = atomic_load_explicit(y, memory_order_seq_cst);
+//	r0 = atomic_load_explicit(y, memory_order_acquire);
+//	r1 = atomic_load_explicit(x, memory_order_seq_cst);
+//	r0 = READ_ONCE(*x);
+//	z0 = r0;
+//	z1 = z0 * z0 + z0;
+//	r1 = z1;
+}
+
+exists (0:r0=2 /\ 1:r0=1)

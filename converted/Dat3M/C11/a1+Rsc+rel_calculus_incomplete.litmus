@@ -1,0 +1,12 @@
+{ [x] = 0; [y] = 0; [zero] = 0; }
+
+P0(x, y, zero) {
+	Read(y, None, Seq_cst, C, r0);
+	Write(x, 1, Release, C, None);
+}
+
+P1(x, y) {
+	Read(x, None, Acquire, C, r1);
+}
+
+exists (x=1 /\ y=1)

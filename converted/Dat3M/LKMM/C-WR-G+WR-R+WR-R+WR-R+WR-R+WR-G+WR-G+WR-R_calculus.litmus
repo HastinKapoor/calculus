@@ -1,0 +1,44 @@
+P0(x0, x1) {
+	Write(x0, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Read(x1, None, Relaxed, Linux, r0);
+}
+
+P1(x1, x2) {
+	Write(x1, 2, Relaxed, Linux, None);
+	Read(x2, None, Relaxed, Linux, r1);
+}
+
+P2(x2, x3) {
+	Write(x2, 2, Relaxed, Linux, None);
+	Read(x3, None, Relaxed, Linux, r2);
+}
+
+P3(x3, x4) {
+	Write(x3, 2, Relaxed, Linux, None);
+	Read(x4, None, Relaxed, Linux, r3);
+}
+
+P4(x4, x5) {
+	Write(x4, 2, Relaxed, Linux, None);
+	Read(x5, None, Relaxed, Linux, r4);
+}
+
+P5(x5, x6) {
+	Write(x5, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Read(x6, None, Relaxed, Linux, r5);
+}
+
+P6(x6, x7) {
+	Write(x6, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Read(x7, None, Relaxed, Linux, r6);
+}
+
+P7(x7, x0) {
+	Write(x7, 2, Relaxed, Linux, None);
+	Read(x0, None, Relaxed, Linux, r7);
+}
+
+exists (r7=0 /\ r0=0 /\ r1=0 /\ r2=0 /\ r3=0 /\ r4=0 /\ r5=0 /\ r6=0)

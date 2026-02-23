@@ -1,0 +1,14 @@
+P0(x0, x1) {
+	Write(x0, 2, Relaxed, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, Seq_cst, Linux, None);
+	Write(x1, 1, Relaxed, Linux, None);
+}
+
+P1(x0, x1) {
+	Write(x1, 2, Relaxed, Linux, None);
+	Write(x0, 1, Relaxed, Linux, None);
+}
+
+exists (x0=2 /\ x1=2)

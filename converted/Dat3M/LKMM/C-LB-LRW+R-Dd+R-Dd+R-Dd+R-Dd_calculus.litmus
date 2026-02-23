@@ -1,0 +1,28 @@
+{ [x1] = y1; [x2] = y2; [x3] = y3; [x4] = y4; }
+
+P0(u0, x1, x2) {
+	Read(u0, None, Relaxed, Linux, r0);
+	Write(x1, x2, Release, Linux, None);
+}
+
+P1(x1, x3) {
+	Read(x1, None, Acquire, Linux, r1);
+	Write(r1, x3, Release, Linux, None);
+}
+
+P2(x2, x4) {
+	Read(x2, None, Acquire, Linux, r2);
+	Write(r1, x4, Release, Linux, None);
+}
+
+P3(x3, u0) {
+	Read(x3, None, Acquire, Linux, r3);
+	Write(r1, u0, Release, Linux, None);
+}
+
+P4(x4) {
+	Read(x4, None, Acquire, Linux, r4);
+	Write(r1, 1, Relaxed, Linux, None);
+}
+
+exists (r0=1 /\ r1=x2 /\ r2=x3 /\ r3=x4 /\ r4=u0)

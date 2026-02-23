@@ -1,0 +1,18 @@
+{ [x1] = y1; [x2] = y2; }
+
+P0(u0, x1, x2) {
+	Write(u0, 3, Relaxed, Linux, None);
+	Write(x1, x2, Release, Linux, None);
+}
+
+P1(u0, x1) {
+	Read(x1, None, Relaxed, Linux, r0);
+	Write(r1, u0, Release, Linux, None);
+}
+
+P2(x2) {
+	Read(x2, None, Relaxed, Linux, r1);
+	Read(r1, None, Relaxed, Linux, r2);
+}
+
+exists (r2=0 /\ r0=x2 /\ r1=u0)
