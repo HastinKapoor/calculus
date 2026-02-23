@@ -2,14 +2,14 @@
 
 P0(int *x, int *y, int *z){
 rcu_read_lock();
-	Write(*x, 1, Relaxed, Linux, None);
-	Write(*y, 1, Relaxed, Linux, None);
+	Write(x, 1, Relaxed, Linux, None);
+	Write(y, 1, Relaxed, Linux, None);
 	rcu_read_unlock();
 }
 
 P1(int *x, int *y, int *z){
 rcu_read_lock();
-	Write(*z, 1, Relaxed_T1, Linux_T1, None_T1);
+	Write(z, 1, Relaxed_T1, Linux_T1, None_T1);
 	rcu_read_unlock();
 }
 

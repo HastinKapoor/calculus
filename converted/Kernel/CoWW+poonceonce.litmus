@@ -1,8 +1,8 @@
 {}
 
 P0(int *x){
-Write(*x, 1, Relaxed, Linux, None);
-	Write(*x, 2, Relaxed, Linux, None);
+Write(x, 1, Relaxed, Linux, None);
+	Write(x, 2, Relaxed, Linux, None);
 }
 
 exists (x=1)

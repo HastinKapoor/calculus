@@ -24,27 +24,50 @@ SMP_STORE_REL_RE = re.compile(r'\bsmp_store_release\s*\(\s*([^,]+?)\s*,\s*([^)]+
 SMP_MB_RE = re.compile(r'\bsmp_mb\s*\(\s*\)\s*;')  # full memory barrier
 SMP_WMB_RE = re.compile(r'\bsmp_wmb\s*\(\s*\)\s*;')  # write memory barrier
 
+def _normalize_location(loc_raw: str) -> str:
+    """
+    Normalize a location argument by removing a single leading '*' (and
+    optional surrounding parentheses). Examples:
+      '*x'     -> 'x'
+      '(*x)'   -> 'x'
+      '* ( x )'-> 'x'
+    """
+    if loc_raw is None:
+        return loc_raw
+    loc = loc_raw.strip()
+    # match forms like '(*x)' first
+    m = re.match(r'^\(\s*\*\s*([^)]+?)\s*\)$', loc)
+    if m:
+        return m.group(1).strip()
+    # if starts with asterisk, strip it and any immediate whitespace
+    if loc.startswith('*'):
+        loc = loc[1:].strip()
+        # if wrapped in parentheses after removing '*', unwrap once
+        if loc.startswith('(') and loc.endswith(')'):
+            loc = loc[1:-1].strip()
+    return loc
+
 def replace_read_assign(match):
     reg = match.group(1)
-    loc = match.group(2).strip()
+    loc = _normalize_location(match.group(2).strip())
     return f"Read({loc}, None, Relaxed, Linux, {reg});"
 
 def replace_read_standalone(match):
-    loc = match.group(1).strip()
+    loc = _normalize_location(match.group(1).strip())
     return f"Read({loc}, None, Relaxed, Linux, None);"
 
 def replace_write_once(match):
-    loc = match.group(1).strip()
+    loc = _normalize_location(match.group(1).strip())
     val = match.group(2).strip()
     return f"Write({loc}, {val}, Relaxed, Linux, None);"
 
 def replace_smp_load_acq_assign(match):
     reg = match.group(1)
-    loc = match.group(2).strip()
+    loc = _normalize_location(match.group(2).strip())
     return f"Read({loc}, None, Acquire, Linux, {reg});"
 
 def replace_smp_store_rel(match):
-    loc = match.group(1).strip()
+    loc = _normalize_location(match.group(1).strip())
     val = match.group(2).strip()
     return f"Write({loc}, {val}, Release, Linux, None);"
 

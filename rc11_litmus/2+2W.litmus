@@ -1,0 +1,19 @@
+{}
+
+P0(){
+Write(x, 1, SEQ_CST, C, None);
+Write(y, 2, SEQ_CST, C, None);
+Read(y, None, Relaxed, C, r0_T0);
+Fence(None, None, SEQ_CST, C, None);
+// UNHANDLED: return NULL;
+}
+
+P1(){
+Write(y, 1, SEQ_CST, C, None);
+Write(x, 2, SEQ_CST, C, None);
+Read(x, None, Relaxed, C, r0_T1);
+Fence(None, None, SEQ_CST, C, None);
+// UNHANDLED: return NULL;
+}
+
+exists (r0_T0 = 1 /\ r0_T1 = 1)

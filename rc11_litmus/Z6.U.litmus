@@ -1,0 +1,24 @@
+{}
+
+P0(){
+Write(x, 1, SEQ_CST, C, None);
+Write(y, 1, Release, C, None);
+// UNHANDLED: return NULL;
+}
+
+P1(){
+// UNHANDLED: int r0 = atomic_fetch_add_explicit(&y, 1, memory_order_seq_cst);
+Read(y, None, Relaxed, C, r1_T1);
+Fence(None, None, SEQ_CST, C, None);
+Write(b, None, Relaxed, C, None);
+// UNHANDLED: return NULL;
+}
+
+P2(){
+Write(y, 3, SEQ_CST, C, None);
+Read(x, None, SEQ_CST, C, r0_T2);
+Fence(None, None, SEQ_CST, C, None);
+// UNHANDLED: return NULL;
+}
+
+exists (r0_T2 = 0 /\ b = 1 /\ r1_T1 = 3)

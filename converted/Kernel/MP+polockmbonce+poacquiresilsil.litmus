@@ -3,7 +3,7 @@
 P0(spinlock_t *lo, int *x){
 spin_lock(lo);
 	smp_mb__after_spinlock();
-	Write(*x, 1, Relaxed, Linux, None);
+	Write(x, 1, Relaxed, Linux, None);
 	spin_unlock(lo);
 }
 

@@ -1,16 +1,16 @@
 {}
 
 P0(int *x, int *y){
-Write(*x, 1, Relaxed, Linux, None);
+Write(x, 1, Relaxed, Linux, None);
 	Fence(None, None, SEQ_CST, Linux, None);
-	Write(*y, 1, Relaxed, Linux, None);
+	Write(y, 1, Relaxed, Linux, None);
 }
 
 P1(int *x, int *y){
 
-	Read(*y, None, Relaxed, Linux, r0);
+	Read(y, None, Relaxed, Linux, r0);
 	if(r0 == 1){
-		Read(*x, None, Relaxed, Linux, r1);
+		Read(x, None, Relaxed, Linux, r1);
 }
 }
 

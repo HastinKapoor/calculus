@@ -1,7 +1,7 @@
 {}
 
 P0(int *buf, int *flag){
-Write(*buf, 1, Relaxed, Linux, None);
+Write(buf, 1, Relaxed, Linux, None);
 	Write(flag, 1, Release, Linux, None);
 }
 
@@ -9,7 +9,7 @@ P1(int *buf, int *flag){
 
 	Read(flag, None, Acquire, Linux, r0);
 	if(r0){
-		Read(*buf, None, Relaxed, Linux, r1);
+		Read(buf, None, Relaxed, Linux, r1);
 }
 }
 
