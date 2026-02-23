@@ -41,7 +41,7 @@ C11_MO_MAP = {
     "memory_order_acquire": "Acquire",
     "memory_order_release": "Release",
     "memory_order_acq_rel": "Acq_rel",
-    "memory_order_seq_cst": "Seq_cst",
+    "memory_order_seq_cst": "SEQ_CST",
 }
 
 REASON_TO_FEATURE = {
@@ -528,7 +528,7 @@ def parse_non_assignment(
             op="Fence",
             location="None",
             value="None",
-            memory_order="Seq_cst",
+            memory_order="SEQ_CST",
             language=language,
             register="None",
         )
@@ -538,7 +538,7 @@ def parse_non_assignment(
             op="Fence",
             location="None",
             value="None",
-            memory_order="Seq_cst",
+            memory_order="SEQ_CST",
             language=language,
             register="None",
         )
@@ -548,7 +548,7 @@ def parse_non_assignment(
             op="Fence",
             location="None",
             value="None",
-            memory_order="Seq_cst",
+            memory_order="SEQ_CST",
             language=language,
             register="None",
         )
