@@ -105,8 +105,13 @@ def convert_thread_body(body: str, tid: int, global_assign_map: dict):
     for part in parts:
         if not part:
             continue
-        # detect atomic_store_explicit(&x, val, memory_order_...)
-        m_store = re.search(r'atomic_store_explicit\s*\(\s*&\s*(?P<loc>\w+)\s*,\s*(?P<val>[^,()]+)\s*,\s*(?P<ord>[^)]+)\)', part)
+
+        # ignore return statements entirely
+        if re.match(r'^\s*return\b', part):
+            continue
+
+        # detect atomic_store_explicit(x, val, memory_order_...)  OR atomic_store_explicit(&x, val, ...)
+        m_store = re.search(r'atomic_store_explicit\s*\(\s*&?\s*(?P<loc>\w+)\s*,\s*(?P<val>[^,()]+)\s*,\s*(?P<ord>[^)]+)\)', part)
         if m_store:
             loc = _normalize_location(m_store.group('loc'))
             val = m_store.group('val').strip()
@@ -115,8 +120,16 @@ def convert_thread_body(body: str, tid: int, global_assign_map: dict):
             stmts.append(f"Write({loc}, {val}, {order}, C, None);")
             continue
 
-        # detect rX = atomic_load_explicit(&x, memory_order_...)
-        m_load = re.search(r'(?P<reg>\w+)\s*=\s*atomic_load_explicit\s*\(\s*&\s*(?P<loc>\w+)\s*,\s*(?P<ord>[^)]+)\)', part)
+        # detect plain pointer store: *a = expr  -> Write(a, expr, SEQ_CST, C, None)
+        m_ptr_store = re.match(r'^\s*\*\s*(?P<loc>[A-Za-z_]\w*)\s*=\s*(?P<val>.+)$', part)
+        if m_ptr_store:
+            loc = _normalize_location(m_ptr_store.group('loc'))
+            val = m_ptr_store.group('val').strip()
+            stmts.append(f"Write({loc}, {val}, SEQ_CST, C, None);")
+            continue
+
+        # detect rX = atomic_load_explicit(x, memory_order_...) OR with &x
+        m_load = re.search(r'(?P<reg>\w+)\s*=\s*atomic_load_explicit\s*\(\s*&?\s*(?P<loc>\w+)\s*,\s*(?P<ord>[^)]+)\)', part)
         if m_load:
             reg = m_load.group('reg')
             loc = _normalize_location(m_load.group('loc'))
@@ -147,8 +160,8 @@ def convert_thread_body(body: str, tid: int, global_assign_map: dict):
                 # omit emitting this assignment as an event (we record mapping for exists)
                 continue
             else:
-                # emit a write with unknown value (conservative: omit value)
-                stmts.append(f"Write({lhs}, None, Relaxed, C, None);")
+                # emit a write with unknown value (conservative: use SEQ_CST as plain stores default)
+                stmts.append(f"Write({lhs}, None, SEQ_CST, C, None);")
                 continue
 
         # fallback: emit as comment-like no-op (kept as-is to aid debugging)

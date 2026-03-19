@@ -5,7 +5,7 @@ P0(u0, x1) {
 
 P1(x1, x2) {
 	Read(x1, None, Acquire, Linux, r1);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x2, 1, Relaxed, Linux, None);
 }
 
@@ -20,7 +20,7 @@ P3(x3, v0) {
 
 P4(v0, u0) {
 	Write(v0, 1, Relaxed, Linux, None);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(u0, 1, Relaxed, Linux, None);
 }
 

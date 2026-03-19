@@ -13,7 +13,7 @@ P2(x2, v0) {
 
 P3(u0, v0) {
 	Read(v0, None, Relaxed, Linux, r2);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(u0, None, Relaxed, Linux, r3);
 }
 

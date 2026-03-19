@@ -1,0 +1,3 @@
+arfna/arfna2, c/c_reorder, cyc/cyc_na, lb, roachmotel/roachmotel2, seq/seq2 # removing no-thin-air "allows" the cycle in Herd. To be implemented here to match behavior.
+linearization.litmus requires addition of read values
+RMW

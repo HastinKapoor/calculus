@@ -17,19 +17,19 @@ P2(x2) {
 
 P3(x3, x4) {
 	Read(x3, None, Acquire, Linux, r2);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x4, 1, Relaxed, Linux, None);
 }
 
 P4(v0, x4) {
 	Read(x4, None, Relaxed, Linux, r3);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(v0, 1, Relaxed, Linux, None);
 }
 
 P5(u0, v0) {
 	Read(v0, None, Relaxed, Linux, r4);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(u0, None, Relaxed, Linux, r5);
 }
 

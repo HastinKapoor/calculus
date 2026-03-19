@@ -1,0 +1,13 @@
+{}
+
+P0(int *x){
+
+	Write(x, 1, Relaxed, Linux, None);
+	Read(x, None, Acquire, Linux, r0);
+}
+
+P1(int *x){
+Write(x, 2, Relaxed, Linux, None);
+}
+
+exists (x=1 /\ r0=2)

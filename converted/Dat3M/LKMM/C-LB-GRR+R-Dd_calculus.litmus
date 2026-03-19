@@ -12,7 +12,7 @@ P1(x1) {
 
 P2(u0, v0) {
 	Write(v0, 1, Relaxed, Linux, None);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(u0, 1, Relaxed, Linux, None);
 }
 

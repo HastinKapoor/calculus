@@ -1,6 +1,6 @@
 P0(x0, x1) {
 	Write(x0, 2, Relaxed, Linux, None);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x1, 1, Relaxed, Linux, None);
 }
 
@@ -26,13 +26,13 @@ P4(x4, x5) {
 
 P5(x5, x6) {
 	Write(x5, 2, Relaxed, Linux, None);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x6, 1, Relaxed, Linux, None);
 }
 
 P6(x6, x7) {
 	Write(x6, 2, Relaxed, Linux, None);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x7, 1, Relaxed, Linux, None);
 }
 

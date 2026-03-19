@@ -1,8 +1,8 @@
 { [x] = 0; [y] = 0; [zero] = 0; }
 
 P0(x, y, zero) {
-	Write(x, 1, Seq_cst, C, None);
-	Read(y, None, Seq_cst, C, r0);
+	Write(x, 1, SEQ_CST, C, None);
+	Read(y, None, SEQ_CST, C, r0);
 }
 
 P1(x, y) {

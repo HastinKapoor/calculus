@@ -6,7 +6,7 @@ P0(x, y) {
 }
 
 P1(x, y, zero) {
-	Read(y, None, Seq_cst, C, r0);
+	Read(y, None, SEQ_CST, C, r0);
 	Read(x, None, Acquire, C, r1);
 }
 

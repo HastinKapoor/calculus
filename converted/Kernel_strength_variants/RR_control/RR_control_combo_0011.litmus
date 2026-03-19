@@ -1,0 +1,17 @@
+{}
+
+P0(int *x, int *y){
+Write(x, 1, Release, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(y, 1, Release, Linux, None);
+}
+
+P1(int *x, int *y){
+
+	Read(y, None, Relaxed, Linux, r0);
+	if(r0 == 1){
+		Read(x, None, Relaxed, Linux, r1);
+}
+}
+
+exists (r0=1 /\ r1=0)

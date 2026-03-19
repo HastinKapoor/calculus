@@ -1,0 +1,14 @@
+{}
+
+P0(int *x, int *y){
+	Write(y, 1, Release, Linux_T0, None_T0);
+	synchronize_rcu();
+}
+
+P1(int *x, int *y){
+rcu_read_lock();
+	Write(x, 1, Relaxed_T1, Linux_T1, None_T1);
+	rcu_read_unlock();
+}
+
+exists (r0_T0=1 /\ r0_T1=1)

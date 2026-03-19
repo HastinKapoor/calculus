@@ -1,0 +1,19 @@
+{}
+
+P0(spinlock_t *s, spinlock_t *t, int *x, int *y){
+spin_lock(s);
+	Write(x, 1, Release, Linux, None);
+	spin_unlock(s);
+	spin_lock(t);
+	Write(y, 1, Release, Linux, None);
+	spin_unlock(t);
+}
+
+P1(int *x, int *y){
+
+	Read(y, None, Relaxed, Linux, r1);
+	smp_rmb();
+	Read(x, None, Acquire, Linux, r2);
+}
+
+exists (r1=1 /\ r2=0)

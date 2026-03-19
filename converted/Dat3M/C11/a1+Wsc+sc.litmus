@@ -1,0 +1,12 @@
+P0 (atomic_int* x, atomic_int* y, atomic_int* zero){
+atomic_store_explicit(y, 0, memory_order_seq_cst);
+  atomic_store_explicit(x, 1, memory_order_seq_cst);
+}
+
+P1 (atomic_int* x, volatile int* y){
+  if (r1) {
+    *y = 1;
+}
+}
+
+exists(x=1 /\ y=1)

@@ -13,7 +13,7 @@ import os
 class Event:
     # Identifier distinguishes two identical operations in different threads or thread positions
     # Forces values to be ints
-    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register):
+    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register : Register):
         self.identifier = identifier
         self.location = location
         self.type = type
@@ -202,10 +202,14 @@ def ToStrongFence(threads):
     for thread in threads:
         for i in range(len(thread)):
             if thread[i].type == Operation.FENCE and thread[i].strength == MemoryOrder.SEQ_CST:
+                # print("Found strong fence:", thread[i])
                 for j in range(i):
                     if thread[j].type != Operation.FENCE:
+                #         print("Found pre-fence event:", thread[j])
                         for k in range(i + 1, len(thread)):
+                #             print("Checking post-fence event:", thread[k])
                             if thread[k].type != Operation.FENCE:
+                #                 print("Found post-fence event:", thread[k])
                                 result.append(Relation(thread[j], thread[i], thread[k]))
                             
     return result
@@ -288,9 +292,12 @@ def ToProp(threads, rf, fr, co):
     
     synct = ToST(threads, rf)
     
-    eco = rf + fr + co
-    for r in eco:
-        eco += []
+    tmp = rf + fr + co
+    eco = tmp.copy()
+    for r in tmp:
+        for s in tmp:
+            if r.Composes(s):
+                eco.append(Relation(r, s))
     
     # Here we would compute other cumul-fences as needed
     po_rel = ToPoRel(threads)
@@ -384,7 +391,10 @@ def HappensBefore(e):
     return not nx.is_directed_acyclic_graph(G)
 
 def PropagatesBefore(e):
+    # print("PropagatesBefore called")
     strong_fences = ToStrongFence(e.threads)
+    # for sf in strong_fences:
+    #     print("Strong fence:", sf)
     
     rel = []
     edges = []
@@ -392,6 +402,7 @@ def PropagatesBefore(e):
     for sf in strong_fences:
         for p in e.prop:
             if p.Composes(sf):
+                # print(Relation(p, sf))
                 rel.append(Relation(p, sf))
     
     rel += ToHappensBefore(e)

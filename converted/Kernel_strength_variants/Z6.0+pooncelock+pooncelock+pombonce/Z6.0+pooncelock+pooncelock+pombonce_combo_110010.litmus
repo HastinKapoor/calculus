@@ -1,0 +1,25 @@
+{}
+
+P0(int *x, int *y, spinlock_t *mylock){
+spin_lock(mylock);
+	Write(x, 1, Relaxed, Linux, None);
+	Write(y, 1, Release, Linux, None);
+	spin_unlock(mylock);
+}
+
+P1(int *y, int *z, spinlock_t *mylock){
+
+	spin_lock(mylock);
+	Read(y, None, Relaxed, Linux, r0);
+	Write(z, 1, Relaxed, Linux, None);
+	spin_unlock(mylock);
+}
+
+P2(int *x, int *z){
+
+	Write(z, 2, Release, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Read(x, None, Acquire, Linux, r1);
+}
+
+exists (r0=1 /\ z=2 /\ r1=0)

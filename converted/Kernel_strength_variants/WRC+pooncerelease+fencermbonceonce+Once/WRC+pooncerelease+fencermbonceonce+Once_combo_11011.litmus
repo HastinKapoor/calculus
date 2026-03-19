@@ -1,0 +1,20 @@
+{}
+
+P0(int *x){
+Write(x, 1, Release, Linux, None);
+}
+
+P1(int *x, int *y){
+
+	Read(x, None, Acquire, Linux, r0_T1);
+	Write(y, 1, Relaxed, Linux, None);
+}
+
+P2(int *x, int *y){
+
+	Read(y, None, Acquire, Linux, r0_T2);
+	smp_rmb();
+	Read(x, None, Acquire, Linux, r1);
+}
+
+exists (r0_T1=1 /\ r0_T2=1 /\ r1=0)

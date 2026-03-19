@@ -1,6 +1,6 @@
 P0(x0) {
 	Read(x0, None, Relaxed, Linux, r0);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(x0, None, Relaxed, Linux, r1);
 }
 

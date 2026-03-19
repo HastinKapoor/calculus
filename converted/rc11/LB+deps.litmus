@@ -1,0 +1,13 @@
+{}
+
+P0(){
+Read(x, None, Relaxed, C, r0_T0);
+Write(y, r0, Relaxed, C, None);
+}
+
+P1(){
+Read(y, None, Relaxed, C, r0_T1);
+Write(x, r0, Relaxed, C, None);
+}
+
+exists (a = 1 /\ b = 1)

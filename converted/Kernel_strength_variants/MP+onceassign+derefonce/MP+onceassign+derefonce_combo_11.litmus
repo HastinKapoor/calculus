@@ -1,0 +1,16 @@
+{ p=y; }
+
+P0(int *x, int **p){
+Write(x, 1, Release, Linux, None);
+	rcu_assign_pointer(*p, x);
+}
+
+P1(int *x, int **p){
+
+	rcu_read_lock();
+	r0 = rcu_dereference(*p);
+	Read(r0, None, Acquire, Linux, r1);
+	rcu_read_unlock();
+}
+
+exists (r0=x /\ r1=0)

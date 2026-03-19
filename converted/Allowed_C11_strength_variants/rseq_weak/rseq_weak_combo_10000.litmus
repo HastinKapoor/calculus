@@ -1,0 +1,16 @@
+P0 (atomic_int* x) {
+  Write(x, 2, Relaxed, C);
+}
+
+P1 (atomic_int* x, volatile int* y) {
+  Write(y, 1, Relaxed, C);
+  Write(x, 1, Relaxed, C);
+  Write(x, 3, Relaxed, C);
+}
+
+P2 (atomic_int* x, volatile int* y) {
+  Read(x, None, Acquire, C, r0);
+  Read(y, None, Relaxed, C);
+}
+
+exists (x=3 /\ y=1 /\ r0=3)

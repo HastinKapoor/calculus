@@ -1,7 +1,7 @@
 { [x] = 0; [y] = 0; [zero] = 0; }
 
 P0(x, y, zero) {
-	Read(y, None, Seq_cst, C, r0);
+	Read(y, None, SEQ_CST, C, r0);
 	Write(x, 1, Release, C, None);
 }
 

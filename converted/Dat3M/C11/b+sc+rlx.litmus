@@ -1,0 +1,9 @@
+P0 (atomic_int* x, atomic_int* y){
+  atomic_store_explicit(y, 1, memory_order_relaxed);
+}
+
+P1 (atomic_int* x, atomic_int* y){
+  atomic_store_explicit(x, 1, memory_order_relaxed);
+}
+
+exists (0:r0=1 /\ 1:r1=1)

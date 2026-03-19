@@ -1,0 +1,16 @@
+P0 (atomic_int *x, atomic_int *y, volatile int* p, volatile int* q) {
+  Read(x, None, Relaxed, C, r0);
+  Read(p, None, Acquire, C, t);
+  Write(q, 1, Release, C);
+  Write(y, 1, Relaxed, C);
+}
+
+P1 (atomic_int *x, atomic_int *y, volatile int* p, volatile int* q) {
+  Read(y, None, Acquire, C, r1);
+  Read(q, None, Relaxed, C, r2);
+  *p = 1;
+  Write(p, 1, Relaxed, C);
+  Write(x, 1, Release, C);
+}
+
+exists (p=1 /\ q=1 /\ r0=1 /\ t=1 /\ r1=1 /\ r2=1)

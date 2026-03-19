@@ -1,0 +1,15 @@
+{}
+
+P0(int *x, int *y){
+Write(x, 1, Relaxed, Linux, None);
+	Write(y, 1, Release, Linux, None);
+}
+
+P1(int *x, int *y){
+
+	Write(y, 2, Relaxed, Linux, None);
+	Read(y, None, Acquire, Linux, r0);
+	Read(x, None, Acquire, Linux, r1);
+}
+
+exists (r0=2 /\ r1=0)

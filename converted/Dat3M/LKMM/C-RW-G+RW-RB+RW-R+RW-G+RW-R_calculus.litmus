@@ -1,12 +1,12 @@
 P0(x0, x1) {
 	Read(x0, None, Relaxed, Linux, r0);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x1, 1, Relaxed, Linux, None);
 }
 
 P1(x1, x2) {
 	Read(x1, None, Relaxed, Linux, r1);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x2, 1, Relaxed, Linux, None);
 }
 
@@ -17,7 +17,7 @@ P2(x2, x3) {
 
 P3(x3, x4) {
 	Read(x3, None, Relaxed, Linux, r3);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Write(x4, 1, Relaxed, Linux, None);
 }
 

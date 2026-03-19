@@ -1,0 +1,16 @@
+{}
+
+P0(int *x, int *y){
+Write(x, 1, Relaxed, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(y, 1, Release, Linux, None);
+}
+
+P1(int *x, int *y){
+
+	Write(y, 2, Relaxed, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Read(x, None, Acquire, Linux, r0);
+}
+
+exists (y=2 /\ r0=0)

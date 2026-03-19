@@ -1,0 +1,8 @@
+{}
+
+P0(int *x){
+Write(x, 1, Release, Linux, None);
+	Write(x, 2, Release, Linux, None);
+}
+
+exists (x=1)

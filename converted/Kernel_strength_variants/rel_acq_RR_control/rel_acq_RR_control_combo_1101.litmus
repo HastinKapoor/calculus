@@ -1,0 +1,16 @@
+{}
+
+P0(int *buf, int *flag){
+Write(buf, 1, Release, Linux, None);
+	Write(flag, 1, Relaxed, Linux, None);
+}
+
+P1(int *buf, int *flag){
+
+	Read(flag, None, Acquire, Linux, r0);
+	if(r0){
+		Read(buf, None, Acquire, Linux, r1);
+}
+}
+
+exists (r0=1 /\ r1=0)

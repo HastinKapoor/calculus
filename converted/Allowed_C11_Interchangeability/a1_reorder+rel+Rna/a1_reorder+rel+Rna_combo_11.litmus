@@ -1,0 +1,11 @@
+P0 (atomic_int* x, atomic_int* y){
+  Write(x, 1, Release, Linux);
+  Read(y, None, Relaxed, C, r0);
+}
+
+P1 (atomic_int* x, volatile int* y){
+  Read(x, None, Acquire, Linux, r1);
+  Write(y, 1, Relaxed, C);
+}
+
+exists(x=1 /\ y=1 /\ r1 = 1)

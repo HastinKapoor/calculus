@@ -2,7 +2,7 @@
 
 P0(x, y) {
 	Write(y, 1, Release, C, None);
-	Read(x, None, Seq_cst, C, r0);
+	Read(x, None, SEQ_CST, C, r0);
 }
 
 P1(x, y) {

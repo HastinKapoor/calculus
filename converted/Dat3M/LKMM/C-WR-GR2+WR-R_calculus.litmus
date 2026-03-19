@@ -1,6 +1,6 @@
 P0(x0, x1) {
 	Write(x0, 2, Relaxed, Linux, None);
-	Fence(None, None, Seq_cst, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
 	Read(x1, None, Relaxed, Linux, r0);
 }
 

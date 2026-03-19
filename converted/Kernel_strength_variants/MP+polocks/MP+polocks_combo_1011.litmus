@@ -1,0 +1,18 @@
+{}
+
+P0(int *buf, int *flag, spinlock_t *mylock){
+Write(buf, 1, Release, Linux, None);
+	spin_lock(mylock);
+	Write(flag, 1, Release, Linux, None);
+	spin_unlock(mylock);
+}
+
+P1(int *buf, int *flag, spinlock_t *mylock){
+
+	spin_lock(mylock);
+	Read(flag, None, Relaxed, Linux, r0);
+	spin_unlock(mylock);
+	Read(buf, None, Acquire, Linux, r1);
+}
+
+exists (r0=1 /\ r1=0)

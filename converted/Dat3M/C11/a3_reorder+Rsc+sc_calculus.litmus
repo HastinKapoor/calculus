@@ -6,8 +6,8 @@ P0(x, y) {
 }
 
 P1(x, y, zero) {
-	Read(y, None, Seq_cst, C, r0);
-	Read(x, None, Seq_cst, C, r1);
+	Read(y, None, SEQ_CST, C, r0);
+	Read(x, None, SEQ_CST, C, r1);
 }
 
 exists (r1=1)

@@ -1,0 +1,14 @@
+{}
+
+P0(int *x, int *y, int *z1, int *z2){
+	*z1 = a;
+	*z2 = *z1;
+	if (*z2 == 1)
+		Write(y, 1, Relaxed, Linux, None);
+}
+
+P1(int *x, int *y){
+	Write(x, r, Release, Linux, None);
+}
+
+exists (x=1 /\ y=1)

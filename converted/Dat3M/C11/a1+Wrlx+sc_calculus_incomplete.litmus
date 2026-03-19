@@ -2,7 +2,7 @@
 
 P0(x, y, zero) {
 	Write(y, 0, Relaxed, C, None);
-	Write(x, 1, Seq_cst, C, None);
+	Write(x, 1, SEQ_CST, C, None);
 }
 
 P1(x, y) {

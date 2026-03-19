@@ -1,0 +1,25 @@
+{}
+
+P0(int *x){
+Write(x, 1, Release, Linux, None);
+}
+
+P1(int *x, int *y){
+
+	Read(x, None, Relaxed, Linux, r0_T1);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Read(y, None, Acquire, Linux, r1_T1);
+}
+
+P2(int *y){
+Write(y, 1, Release, Linux, None);
+}
+
+P3(int *x, int *y){
+
+	Read(y, None, Acquire, Linux, r0_T3);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Read(x, None, Acquire, Linux, r1_T3);
+}
+
+exists (r0_T1=1 /\ r1_T1=0 /\ r0_T3=1 /\ r1_T3=0)

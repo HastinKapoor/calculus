@@ -1,0 +1,18 @@
+{ int x = 1; int *y = &x; int z = 2; }
+
+P0(int *x, int *z, int **y){
+
+	rcu_read_lock();
+	r0 = rcu_dereference(*y);
+	Read(r0, None, Acquire, Linux, r1);
+	r2 = rcu_dereference(*y);
+	Read(r2, None, Relaxed, Linux, r3);
+	rcu_read_unlock();
+}
+
+P1(int *x, int *z, int **y){
+rcu_assign_pointer(*y, z);
+	synchronize_rcu();
+}
+
+exists (r1=1 /\ r3=2)
