@@ -142,7 +142,47 @@ def InInt(threads, rel):
 
 # Cycle in communication + po-loc
 def PerLocSC(threads, rf, fr, co):
-    ...
+    po_loc = []
+
+    for thread in threads:
+        for i in range(len(thread)):
+            if thread[i].location is None:
+                continue
+            for j in range(i + 1, len(thread)):
+                if thread[j].location is None:
+                    continue
+                if thread[i].location == thread[j].location:
+                    po_loc.append(Relation(thread[i], thread[j]))
+
+    rel = po_loc + rf + fr + co
+    edges = []
+
+    for r in rel:
+        edges.append([r.First(), r.Last()])
+
+    G = nx.DiGraph(edges)
+    return not nx.is_directed_acyclic_graph(G)
+
+def NoThinAir(threads, rf):
+    po = []
+
+    for thread in threads:
+        for i in range(len(thread)):
+            for j in range(i + 1, len(thread)):
+                po.append(Relation(thread[i], thread[j]))
+
+    rel = [
+        r
+        for r in po + rf
+        if r.First().language == Language.C and r.Last().language == Language.C
+    ]
+    edges = []
+
+    for r in rel:
+        edges.append([r.First(), r.Last()])
+
+    G = nx.DiGraph(edges)
+    return not nx.is_directed_acyclic_graph(G)
 
 def ToPoRel(threads):
     result = []
@@ -757,6 +797,53 @@ def writes_by_location(processes):
 
     return loc_writes
 
+def canonicalize_location(location):
+    return str(location).strip().strip("[]")
+
+def extract_location_constraints(constraints, inits, processes):
+    known_locations = set()
+
+    for init in inits:
+        known_locations.add(canonicalize_location(init.location))
+
+    for process in processes:
+        for event in process:
+            if event.location is not None:
+                known_locations.add(canonicalize_location(event.location))
+
+    location_constraints = []
+
+    for clause in constraints:
+        clause_locations = {}
+        for key, val in clause.items():
+            normalized_key = canonicalize_location(key)
+            if normalized_key in known_locations:
+                clause_locations[normalized_key] = val
+        location_constraints.append(clause_locations)
+
+    return location_constraints
+
+def co_satisfies_constraints(selection, constraints, inits, processes):
+    location_constraints = extract_location_constraints(constraints, inits, processes)
+    location_finals = {
+        canonicalize_location(init.location): init.value
+        for init in inits
+    }
+
+    for order in selection:
+        if order:
+            location_finals[canonicalize_location(order[0].location)] = order[-1].value
+
+    constrained_clauses = [clause for clause in location_constraints if clause]
+    if not constrained_clauses:
+        return True
+
+    for clause in constrained_clauses:
+        if all(str(location_finals.get(loc)) == str(val) for loc, val in clause.items()):
+            return True
+
+    return False
+
 def co_from_order(order):
     """
     order: list[WriteEvent]
@@ -768,7 +855,7 @@ def co_from_order(order):
             co.append(Relation(order[i], order[j]))
     return co
 
-def enumerate_co_relations(processes, inits):
+def enumerate_co_relations(processes, inits, constraints=None):
     loc_writes = writes_by_location(processes)
     per_loc_orders = []
     
@@ -794,6 +881,8 @@ def enumerate_co_relations(processes, inits):
     all_cos = []
 
     for selection in itertools.product(*per_loc_orders):
+        if constraints and not co_satisfies_constraints(selection, constraints, inits, processes):
+            continue
         co = []
         for order in selection:
             co.extend(co_from_order(order))
@@ -982,7 +1071,7 @@ def output_processed_litmus(inits, events, constraints):
         
     
 
-print("============================================")
+# print("============================================")
 
 # Allow specifying the litmus input file on the command line (positional, optional)
 parser = argparse.ArgumentParser(description="Run a litmus test file")
@@ -1011,17 +1100,22 @@ output_processed_litmus(initialization_events, converted, constraints)
 apply_read_values(converted, constraints)
 
 rf = enumerate_rf_relations(converted, rf_candidates(converted, initialization_events)) # get final line from file?
-print("rf", rf)
-co = enumerate_co_relations(converted, initialization_events)
-print("co", co)
+# print("rf", rf)
+co = enumerate_co_relations(converted, initialization_events, constraints)
+# print("co", co)
 fr = []
 
+result = "Forbidden"
 for rf_i in rf:
     for co_j in co:
         fr = generate_fr_relations(rf_i, co_j)
         # print("fr", fr)
         test = Execution(converted, rf_i, fr, co_j)
-        print("hb", HappensBefore(test))
-        print("pb", PropagatesBefore(test))
+        # print("perloc", PerLocSC(converted, rf_i, fr, co_j))
+        # print("hb", HappensBefore(test))
+        # print("pb", PropagatesBefore(test))
+        # print("nta", NoThinAir(converted, rf_i))
+        if(not NoThinAir(converted, rf_i) and not PerLocSC(converted, rf_i, fr, co_j) and not HappensBefore(test) and not PropagatesBefore(test)):
+           result = "Allowed"
+print(f"{input_filename}: {result}")
 # test = Execution(converted, rf, fr, co) #[Relation(Event(1, "x", "Write", "Release", "C", 1, None), Event(2, "x", "Read", "Acquire", "C", 1, "r0")), Relation(Event(3, "y", "Write", "Relaxed", "C", 1, None), Event(0, "y", "Read", "Relaxed", "C", 1, "r1"))], [], [])
-
