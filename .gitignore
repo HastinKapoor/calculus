@@ -1,6 +1,27 @@
 notes.txt
 processed/
 __pycache__/
+**/__pycache__/
+*.py[cod]
 .vscode/
 .venv/
 .github/
+.pdf/
+.codex/
+.codex_tmp/
+.tmp/
+.pytest_cache/
+.coverage
+.coverage.*
+.mypy_cache/
+.ruff_cache/
+*.swp
+*.swo
+.DS_Store
+
+# Large generated litmus suites
+converted/Allowed_C11_strength_variants/
+converted/Allowed_C11_strength_variants_Interchangeability/
+converted/Allowed_C11_strength_variants_thread_Interchangeability/
+converted/Kernel_strength_variants/
+converted/Dat3M/
