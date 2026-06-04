@@ -134,6 +134,11 @@ def parse_event(line, identifier):
     Returns:
         Event object
     """
+    def normalize_arg(arg):
+        if arg == "None":
+            return None
+        return arg
+
     # Remove assignment (e.g. r0 = )
     # if "=" in line:
     #     line = line.split("=", 1)[1].strip()
@@ -156,15 +161,15 @@ def parse_event(line, identifier):
     register = None
 
     if len(args) >= 1:
-        location = args[0]
+        location = normalize_arg(args[0])
     if len(args) >= 2:
-        value = args[1]
+        value = normalize_arg(args[1])
     if len(args) >= 3:
         strength = args[2]
     if len(args) >= 4:
         language = args[3]
     if len(args) >= 5:
-        register = args[4]
+        register = normalize_arg(args[4])
 
     return Event(identifier, location, event_type, strength, language, value, register)
 

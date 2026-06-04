@@ -8,8 +8,8 @@ from pathlib import Path
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "For each litmus test in converted/Allowed_C11, run rc11_test.py on the "
-            "base test and then run calculus_test.py on all corresponding "
+            "For each litmus test under converted/Allowed_C11, run rc11_test.py on "
+            "the base test and then run calculus_test.py on all corresponding "
             "interchangeability variants."
         )
     )
@@ -61,7 +61,7 @@ def main():
         print(f"Required script not found: {calculus_script}", file=sys.stderr)
         return 2
 
-    litmus_files = sorted(allowed_dir.glob("*.litmus"))
+    litmus_files = sorted(allowed_dir.rglob("*.litmus"))
     if not litmus_files:
         print(f"No .litmus files found in {allowed_dir}")
         return 0
@@ -69,8 +69,8 @@ def main():
     failures = []
 
     for litmus_file in litmus_files:
-        test_name = litmus_file.stem
-        variant_dir = interchangeability_dir / test_name
+        relative_litmus = litmus_file.relative_to(allowed_dir)
+        variant_dir = interchangeability_dir / relative_litmus.parent / litmus_file.stem
 
         print(f"=== Base RC11: {litmus_file} ===")
         returncode, stdout, stderr = run_command(

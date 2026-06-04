@@ -15,14 +15,19 @@ import os
 from collections import Counter, defaultdict
 
 # Patterns for macro translations
-READ_ASSIGN_RE = re.compile(r'\b(r\d+)\s*=\s*READ_ONCE\s*\(\s*([^)]+?)\s*\)\s*;')
+READ_ASSIGN_RE = re.compile(r'\b(?:[A-Za-z_][\w\s\*]*\s+)?(r\d+)\s*=\s*READ_ONCE\s*\(\s*([^)]+?)\s*\)\s*;')
 READ_STANDALONE_RE = re.compile(r'\bREAD_ONCE\s*\(\s*([^)]+?)\s*\)\s*;')
 WRITE_ONCE_RE = re.compile(r'\bWRITE_ONCE\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;')
 
-SMP_LOAD_ACQ_ASSIGN_RE = re.compile(r'\b(r\d+)\s*=\s*smp_load_acquire\s*\(\s*([^)]+?)\s*\)\s*;')
+SMP_LOAD_ACQ_ASSIGN_RE = re.compile(r'\b(?:[A-Za-z_][\w\s\*]*\s+)?(r\d+)\s*=\s*smp_load_acquire\s*\(\s*([^)]+?)\s*\)\s*;')
 SMP_STORE_REL_RE = re.compile(r'\bsmp_store_release\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;')
 SMP_MB_RE = re.compile(r'\bsmp_mb\s*\(\s*\)\s*;')  # full memory barrier
 SMP_WMB_RE = re.compile(r'\bsmp_wmb\s*\(\s*\)\s*;')  # write memory barrier
+RCU_DEREFERENCE_ASSIGN_RE = re.compile(r'\b(?:[A-Za-z_][\w\s\*]*\s+)?(r\d+)\s*=\s*rcu_dereference\s*\(\s*([^)]+?)\s*\)\s*;')
+RCU_ASSIGN_POINTER_RE = re.compile(r'\brcu_assign_pointer\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;')
+SYNC_RCU_RE = re.compile(r'\bsynchronize_rcu\s*\(\s*\)\s*;')
+RCU_READ_LOCK_RE = re.compile(r'\brcu_read_lock\s*\(\s*\)\s*;')
+RCU_READ_UNLOCK_RE = re.compile(r'\brcu_read_unlock\s*\(\s*\)\s*;')
 
 def _normalize_location(loc_raw: str) -> str:
     """
@@ -71,22 +76,46 @@ def replace_smp_store_rel(match):
     val = match.group(2).strip()
     return f"Write({loc}, {val}, Release, Linux, None);"
 
+def replace_rcu_dereference_assign(match):
+    reg = match.group(1)
+    loc = _normalize_location(match.group(2).strip())
+    return f"Read({loc}, None, Acquire, Linux, {reg});"
+
+def replace_rcu_assign_pointer(match):
+    loc = _normalize_location(match.group(1).strip())
+    val = match.group(2).strip()
+    return f"Write({loc}, {val}, Release, Linux, None);"
+
 def replace_smp_mb(match):
-    # Translate Linux full memory barrier to a Seq_Cst fence in calculus format
+    # Translate Linux full memory barrier to a SEQ_CST fence in calculus format
     return "Fence(None, None, SEQ_CST, Linux, None);"
 
 def replace_smp_wmb(match):
     # Translate Linux write memory barrier to a WMB fence in calculus format
     return "Fence(None, None, WMB, Linux, None);"
 
+def replace_sync_rcu(match):
+    return "Fence(None, None, SYNC_RCU, Linux, None);"
+
+def replace_rcu_read_lock(match):
+    return "Fence(None, None, RCU_LOCK, Linux, None);"
+
+def replace_rcu_read_unlock(match):
+    return "Fence(None, None, RCU_UNLOCK, Linux, None);"
+
 def convert_text(text: str) -> str:
     # Apply macro translations (order matters)
     text = SMP_MB_RE.sub(replace_smp_mb, text)
     text = SMP_WMB_RE.sub(replace_smp_wmb, text)
+    text = SYNC_RCU_RE.sub(replace_sync_rcu, text)
+    text = RCU_READ_LOCK_RE.sub(replace_rcu_read_lock, text)
+    text = RCU_READ_UNLOCK_RE.sub(replace_rcu_read_unlock, text)
     text = SMP_LOAD_ACQ_ASSIGN_RE.sub(replace_smp_load_acq_assign, text)
+    text = RCU_DEREFERENCE_ASSIGN_RE.sub(replace_rcu_dereference_assign, text)
     text = READ_ASSIGN_RE.sub(replace_read_assign, text)
     text = WRITE_ONCE_RE.sub(replace_write_once, text)
     text = SMP_STORE_REL_RE.sub(replace_smp_store_rel, text)
+    text = RCU_ASSIGN_POINTER_RE.sub(replace_rcu_assign_pointer, text)
     text = READ_STANDALONE_RE.sub(replace_read_standalone, text)
     return text
 

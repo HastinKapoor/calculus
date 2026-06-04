@@ -18,6 +18,9 @@ class MemoryOrder(Enum):
     SEQ_CST = 5
     WMB = 6
     RMB = 7
+    SYNC_RCU = 8
+    RCU_LOCK = 9
+    RCU_UNLOCK = 10
     
 class Language(Enum):
     C = 1

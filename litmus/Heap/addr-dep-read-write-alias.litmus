@@ -1,0 +1,8 @@
+{ a = data; b = data; ptr = slot; slot = b; [data] = 0; }
+
+P0(int *a, int *b, int **ptr){
+Read(ptr, None, Acquire, C, r0);
+Write(r0, 1, Relaxed, C, None);
+}
+
+exists (r0 = data /\ a = 1)

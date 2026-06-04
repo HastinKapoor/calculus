@@ -550,16 +550,30 @@ def parse_non_assignment(
             op="Fence",
             location="None",
             value="None",
-            memory_order="SEQ_CST",
+            memory_order="SYNC_RCU",
             language=language,
             register="None",
         )
 
     if parse_call(stmt, "rcu_read_lock") is not None:
-        return True, None
+        return True, Operation(
+            op="Fence",
+            location="None",
+            value="None",
+            memory_order="RCU_LOCK",
+            language=language,
+            register="None",
+        )
 
     if parse_call(stmt, "rcu_read_unlock") is not None:
-        return True, None
+        return True, Operation(
+            op="Fence",
+            location="None",
+            value="None",
+            memory_order="RCU_UNLOCK",
+            language=language,
+            register="None",
+        )
 
     # Plain non-atomic write through pointer.
     plain_store = re.match(r"^\s*\*\s*(.+?)\s*=\s*(.+?)\s*;?\s*$", stmt)

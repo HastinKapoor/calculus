@@ -83,6 +83,15 @@ class Relation:
                     return True
         
         return False
+    
+    def SingleComposes(self, other):
+        A = self
+        B = other
+        
+        if A.Terminal() == B.Initial():
+            return True
+        
+        return False
 
     def __eq__(self, other):
         if not isinstance(self, Relation) or not isinstance(other, Relation):
@@ -139,6 +148,122 @@ def InInt(threads, rel):
     for thread in threads:
         if i in thread:
             return t in thread
+
+def AddUniqueRelation(result, relation):
+    if relation not in result:
+        result.append(relation)
+
+def RelationToEndpoints(rel):
+    return Relation(rel.Initial(), rel.Terminal())
+
+def RelationToGraphEdges(rel):
+    firsts = []
+    lasts = []
+
+    tmp = rel
+    while isinstance(tmp, Relation):
+        firsts.append(tmp.First())
+        tmp = tmp.First()
+
+    tmp = rel
+    while isinstance(tmp, Relation):
+        lasts.append(tmp.Last())
+        tmp = tmp.Last()
+
+    edges = []
+    for s in firsts:
+        for t in lasts:
+            edges.append([s, t])
+
+    for s in firsts:
+        edges.append([s, rel])
+
+    for s in lasts:
+        edges.append([rel, s])
+
+    return edges
+
+def RelationsToGraphEdges(relations):
+    edges = []
+    for rel in relations:
+        edges += RelationToGraphEdges(rel)
+    return edges
+
+def ToEventEdges(relations):
+    edges = []
+    for rel in relations:
+        edge = [rel.Initial(), rel.Terminal()]
+        if edge not in edges:
+            edges.append(edge)
+    return edges
+
+def IsAcyclic(edges, nodes=None):
+    G = nx.DiGraph()
+    if nodes is not None:
+        G.add_nodes_from(nodes)
+    G.add_edges_from(edges)
+    return nx.is_directed_acyclic_graph(G)
+
+def ExecutionEvents(execution):
+    result = []
+
+    def add_event(event):
+        if isinstance(event, Event) and event not in result:
+            result.append(event)
+
+    def visit(node):
+        if isinstance(node, Event):
+            add_event(node)
+        elif isinstance(node, Relation):
+            for element in node.elements:
+                visit(element)
+
+    for thread in execution.threads:
+        for event in thread:
+            add_event(event)
+
+    for relation in execution.rf + execution.fr + execution.co + execution.ppo + execution.st + execution.prop:
+        visit(relation)
+
+    return result
+
+def ToTransitiveClosureRelations(edges, nodes):
+    G = nx.DiGraph()
+    G.add_nodes_from(nodes)
+    G.add_edges_from(edges)
+
+    if not nx.is_directed_acyclic_graph(G):
+        return None
+
+    closure = []
+    for node in nodes:
+        closure.append(Relation(node, node))
+        for descendant in nx.descendants(G, node):
+            closure.append(Relation(node, descendant))
+
+    return closure
+
+def ToProgramOrder(threads):
+    result = []
+
+    for thread in threads:
+        for i in range(len(thread)):
+            for j in range(i + 1, len(thread)):
+                result.append(Relation(thread[i], thread[j]))
+
+    return result
+
+def IsRCULock(event):
+    return event.type == Operation.FENCE and event.strength == MemoryOrder.RCU_LOCK
+
+def IsRCUUnlock(event):
+    return event.type == Operation.FENCE and event.strength == MemoryOrder.RCU_UNLOCK
+
+def IsSyncRCU(event):
+    return event.type == Operation.FENCE and event.strength == MemoryOrder.SYNC_RCU
+
+def IsRCUFence(event):
+    return IsRCULock(event) or IsRCUUnlock(event) or IsSyncRCU(event)
 
 # Cycle in communication + po-loc
 def PerLocSC(threads, rf, fr, co):
@@ -239,9 +364,10 @@ def ToAcqPo(threads):
 
 def ToStrongFence(threads):
     result = []
+    strong_fence_strengths = {MemoryOrder.SEQ_CST, MemoryOrder.SYNC_RCU}
     for thread in threads:
         for i in range(len(thread)):
-            if thread[i].type == Operation.FENCE and thread[i].strength == MemoryOrder.SEQ_CST:
+            if thread[i].type == Operation.FENCE and thread[i].strength in strong_fence_strengths:
                 # print("Found strong fence:", thread[i])
                 for j in range(i):
                     if thread[j].type != Operation.FENCE:
@@ -387,94 +513,261 @@ class Execution:
         self.st = ToST(threads, rf)
         self.prop = ToProp(threads, rf, fr, co)
 
-def ToHappensBefore(e):
+def ToHappensBeforeRelations(e):
     prop_int_nonempty = []
     for rel in e.prop:
         if InInt(e.threads, rel) and not InEmpty(rel):
             prop_int_nonempty.append(rel)
 
-    rel = e.ppo + e.st + prop_int_nonempty
-    
-    edges = []
-    
-    for r in rel:
-        firsts = []
-        lasts = []
-        
-        tmp = r
-        while isinstance(tmp, Relation):
-            firsts.append(tmp.First())
-            tmp = tmp.First()
-        
-        tmp = r
-        while isinstance(tmp, Relation):
-            lasts.append(tmp.Last())
-            tmp = tmp.Last()
+    return e.ppo + e.st + prop_int_nonempty
 
-        for s in firsts:
-            for t in lasts:
-                edges.append([s, t])
-                
-        for s in firsts:
-            edges.append([s, r])
-            
-        for s in lasts:
-            edges.append([r, s])
-    
-    return edges
+def ToHappensBefore(e):
+    return RelationsToGraphEdges(ToHappensBeforeRelations(e))
 
 def HappensBefore(e):
     edges = ToHappensBefore(e)
     # for e in edges:
     #     print(e)
-    G = nx.DiGraph(edges)
-    return not nx.is_directed_acyclic_graph(G)
+    return not IsAcyclic(edges)
 
-def PropagatesBefore(e):
+def ToPropagatesBeforeRelations(e):
     # print("PropagatesBefore called")
     strong_fences = ToStrongFence(e.threads)
     # for sf in strong_fences:
     #     print("Strong fence:", sf)
-    
-    rel = []
-    edges = []
-    
+
+    rel = strong_fences.copy()
+
     for sf in strong_fences:
         for p in e.prop:
             if p.Composes(sf):
                 # print(Relation(p, sf))
-                rel.append(Relation(p, sf))
-    
-    rel += ToHappensBefore(e)
-    
-    for r in rel:
-        firsts = []
-        lasts = []
-        
-        tmp = r
-        while isinstance(tmp, Relation):
-            firsts.append(tmp.First())
-            tmp = tmp.First()
-        
-        tmp = r
-        while isinstance(tmp, Relation):
-            lasts.append(tmp.Last())
-            tmp = tmp.Last()
+                AddUniqueRelation(rel, Relation(p, sf))
 
-        for s in firsts:
-            for t in lasts:
-                edges.append([s, t])
-                
-        for s in firsts:
-            edges.append([s, r])
-            
-        for s in lasts:
-            edges.append([r, s])
-    
+    return rel
+
+def ToPropagatesBefore(e):
+    rel = ToPropagatesBeforeRelations(e)
+    return RelationsToGraphEdges(rel) + ToHappensBefore(e)
+
+def PropagatesBefore(e):
+    edges = ToPropagatesBefore(e)
     # for e in edges:
     #     print(e)
-    G = nx.DiGraph(edges)
-    return not nx.is_directed_acyclic_graph(G) 
+    return not IsAcyclic(edges)
+
+def ToCompleteHappensBeforeRelations(e):
+    return ToTransitiveClosureRelations(ToEventEdges(ToHappensBeforeRelations(e)), ExecutionEvents(e))
+
+def ToCompletePropagatesBeforeRelations(e, hb_star=None):
+    if hb_star is None:
+        hb_star = ToCompleteHappensBeforeRelations(e)
+
+    if hb_star is None:
+        return None
+
+    result = []
+    strong_fences = [RelationToEndpoints(rel) for rel in ToStrongFence(e.threads)]
+    prop_relations = [RelationToEndpoints(rel) for rel in e.prop]
+
+    prop_to_strong_fence = []
+    for prop in prop_relations:
+        for strong_fence in strong_fences:
+            if prop.SingleComposes(strong_fence):
+                AddUniqueRelation(
+                    prop_to_strong_fence,
+                    Relation(prop.Initial(), strong_fence.Terminal()),
+                )
+
+    for rel in prop_to_strong_fence:
+        AddUniqueRelation(result, rel)
+        for hb in hb_star:
+            if rel.SingleComposes(hb):
+                AddUniqueRelation(result, Relation(rel.Initial(), hb.Terminal()))
+
+    return result
+
+def ToRCURSCSI(threads):
+    result = []
+
+    for thread in threads:
+        stack = []
+        for event in thread:
+            if IsRCULock(event):
+                stack.append(event)
+            elif IsRCUUnlock(event) and stack:
+                result.append(Relation(event, stack.pop()))
+
+    return result
+
+def ToRCUGP(threads):
+    result = []
+
+    for thread in threads:
+        for event in thread:
+            if IsSyncRCU(event):
+                result.append(Relation(event, event))
+
+    return result
+
+def ToRCULink(e, hb_star, pb_star):
+    result = []
+    program_order = ToProgramOrder(e.threads)
+    rcu_fence_events = [event for event in ExecutionEvents(e) if IsRCUFence(event)]
+    start_po = [Relation(event, event) for event in rcu_fence_events]
+    start_po += [rel for rel in program_order if IsRCUFence(rel.Initial())]
+    end_po = [rel for rel in program_order if IsRCUFence(rel.Terminal())]
+    prop_relations = [RelationToEndpoints(rel) for rel in e.prop]
+
+    for po_start in start_po:
+        for hb in hb_star:
+            if not po_start.SingleComposes(hb):
+                continue
+            hb_progress = Relation(po_start.Initial(), hb.Terminal())
+            for pb in pb_star:
+                if not hb_progress.SingleComposes(pb):
+                    continue
+                pb_progress = Relation(hb_progress.Initial(), pb.Terminal())
+                prop_progressions = [pb_progress]
+
+                for prop in prop_relations:
+                    if pb_progress.SingleComposes(prop):
+                        prop_progressions.append(Relation(pb_progress.Initial(), prop.Terminal()))
+
+                for prop_progress in prop_progressions:
+                    for po_end in end_po:
+                        if prop_progress.SingleComposes(po_end):
+                            AddUniqueRelation(result, Relation(po_start.Initial(), po_end.Terminal()))
+
+    return result
+
+def ToRCUOrder(rcu_gp, rcu_rscsi, rcu_link):
+    result = []
+
+    for relation in rcu_gp:
+        AddUniqueRelation(result, relation)
+
+    changed = True
+    while changed:
+        changed = False
+        additions = []
+
+        for gp in rcu_gp:
+            for link in rcu_link:
+                if not gp.SingleComposes(link):
+                    continue
+                for rscsi in rcu_rscsi:
+                    if link.SingleComposes(rscsi):
+                        AddUniqueRelation(additions, Relation(gp.Initial(), rscsi.Terminal()))
+
+        for rscsi in rcu_rscsi:
+            for link in rcu_link:
+                if not rscsi.SingleComposes(link):
+                    continue
+                for gp in rcu_gp:
+                    if link.SingleComposes(gp):
+                        AddUniqueRelation(additions, Relation(rscsi.Initial(), gp.Terminal()))
+
+        for gp in rcu_gp:
+            for link_left in rcu_link:
+                if not gp.SingleComposes(link_left):
+                    continue
+                for order in result:
+                    if not link_left.SingleComposes(order):
+                        continue
+                    for link_right in rcu_link:
+                        if not order.SingleComposes(link_right):
+                            continue
+                        for rscsi in rcu_rscsi:
+                            if link_right.SingleComposes(rscsi):
+                                AddUniqueRelation(additions, Relation(gp.Initial(), rscsi.Terminal()))
+
+        for rscsi in rcu_rscsi:
+            for link_left in rcu_link:
+                if not rscsi.SingleComposes(link_left):
+                    continue
+                for order in result:
+                    if not link_left.SingleComposes(order):
+                        continue
+                    for link_right in rcu_link:
+                        if not order.SingleComposes(link_right):
+                            continue
+                        for gp in rcu_gp:
+                            if link_right.SingleComposes(gp):
+                                AddUniqueRelation(additions, Relation(rscsi.Initial(), gp.Terminal()))
+
+        for left in result:
+            for link in rcu_link:
+                if not left.SingleComposes(link):
+                    continue
+                for right in result:
+                    if link.SingleComposes(right):
+                        AddUniqueRelation(additions, Relation(left.Initial(), right.Terminal()))
+
+        for relation in additions:
+            if relation not in result:
+                result.append(relation)
+                changed = True
+
+    return result
+
+def ToRCUFence(e, rcu_order):
+    result = []
+    program_order = ToProgramOrder(e.threads)
+    pre_po = [rel for rel in program_order if IsRCUFence(rel.Terminal())]
+    post_po_optional = [Relation(event, event) for event in ExecutionEvents(e) if IsRCUFence(event)]
+    post_po_optional += [rel for rel in program_order if IsRCUFence(rel.Initial())]
+
+    for before in pre_po:
+        for order in rcu_order:
+            if not before.SingleComposes(order):
+                continue
+            for after in post_po_optional:
+                if order.SingleComposes(after):
+                    AddUniqueRelation(result, Relation(before.Initial(), after.Terminal()))
+
+    return result
+
+def ToRCUBefore(e):
+    if HappensBefore(e) or PropagatesBefore(e):
+        return []
+
+    hb_star = ToCompleteHappensBeforeRelations(e)
+    pb = ToCompletePropagatesBeforeRelations(e, hb_star)
+    if hb_star is None or pb is None:
+        return []
+
+    pb_star = ToTransitiveClosureRelations(ToEventEdges(pb), ExecutionEvents(e))
+    if pb_star is None:
+        return []
+
+    rcu_link = ToRCULink(e, hb_star, pb_star)
+    rcu_order = ToRCUOrder(ToRCUGP(e.threads), ToRCURSCSI(e.threads), rcu_link)
+    rcu_fence = ToRCUFence(e, rcu_order)
+    prop_relations = [RelationToEndpoints(rel) for rel in e.prop]
+
+    result = []
+    for prop in prop_relations:
+        for fence in rcu_fence:
+            if not prop.SingleComposes(fence):
+                continue
+            prop_fence = Relation(prop.Initial(), fence.Terminal())
+            for hb in hb_star:
+                if not prop_fence.SingleComposes(hb):
+                    continue
+                prop_fence_hb = Relation(prop.Initial(), hb.Terminal())
+                for pb_rel in pb_star:
+                    if prop_fence_hb.SingleComposes(pb_rel):
+                        AddUniqueRelation(
+                            result,
+                            Relation(prop_fence_hb.Initial(), pb_rel.Terminal()),
+                        )
+
+    return result
+
+def RCU(e):
+    edges = ToEventEdges(ToRCUBefore(e))
+    return not IsAcyclic(edges, ExecutionEvents(e))
 
 # Message Passing using release and acquire accesses
 # Should there exist "Events" for the initialization of x and y?
@@ -558,6 +851,10 @@ def convert_to_events(parsed_threads):
     return events
 
 def parse_event(line, identifier):
+    def normalize_arg(arg):
+        if arg == "None":
+            return None
+        return arg
 
     # Remove assignment (e.g. r0 = )
     # if "=" in line:
@@ -587,9 +884,9 @@ def parse_event(line, identifier):
     register = None
 
     if len(args) >= 1:
-        location = args[0]
+        location = normalize_arg(args[0])
     if len(args) >= 2:
-        value = args[1]
+        value = normalize_arg(args[1])
     if len(args) >= 3:
         try:
             strength = MemoryOrder[args[2].upper()]
@@ -601,7 +898,9 @@ def parse_event(line, identifier):
         except KeyError:
             print(f"{args[3]} is not a support Language")
     if len(args) >= 5:
-        register = global_registers.newRegister(identifier.getThreadId(), args[4])
+        register_name = normalize_arg(args[4])
+        if register_name is not None:
+            register = global_registers.newRegister(identifier.getThreadId(), register_name)
 
     return Event(identifier, location, event_type, strength, language, value, register)
 
@@ -949,25 +1248,18 @@ def inits_to_string(initializations):
     
 def events_to_string(event):
     """Convert an Event back to string format like Read(y, None, Relaxed, C, r0);"""
-    parts = [event.location]
-    
-    # Add value parameter
-    if event.type == Operation.READ:
-        parts.append("None" if event.value is None else str(event.value))
-    elif event.type == Operation.WRITE:
-        parts.append(str(event.value))
-    
-    # Add strength/memory order
+    parts = [
+        "None" if event.location is None else str(event.location),
+        "None" if event.value is None else str(event.value),
+    ]
+
     if event.strength:
-        parts.append(event.strength.name.capitalize())
-    
-    # Add language
+        parts.append(event.strength.name)
+
     if event.language:
         parts.append(event.language.name)
-    
-    # Add register (only for reads)
-    if event.register is not None:
-        parts.append(event.register.id)
+
+    parts.append("None" if event.register is None else event.register.id)
     
     op_name = event.type.name.capitalize()
     return f"{op_name}({', '.join(parts)});"
@@ -1049,6 +1341,8 @@ def output_processed_litmus(inits, events, constraints):
             locations = []
             seen = set()
             for event in thread:
+                if event.location is None:
+                    continue
                 if event.location not in seen:
                     # Strip brackets from location for thread signature
                     loc = event.location.strip('[]')
@@ -1115,7 +1409,7 @@ for rf_i in rf:
         # print("hb", HappensBefore(test))
         # print("pb", PropagatesBefore(test))
         # print("nta", NoThinAir(converted, rf_i))
-        if(not NoThinAir(converted, rf_i) and not PerLocSC(converted, rf_i, fr, co_j) and not HappensBefore(test) and not PropagatesBefore(test)):
+        if(not NoThinAir(converted, rf_i) and not PerLocSC(converted, rf_i, fr, co_j) and not HappensBefore(test) and not PropagatesBefore(test) and not RCU(test)):
            result = "Allowed"
 print(f"{input_filename}: {result}")
 # test = Execution(converted, rf, fr, co) #[Relation(Event(1, "x", "Write", "Release", "C", 1, None), Event(2, "x", "Read", "Acquire", "C", 1, "r0")), Relation(Event(3, "y", "Write", "Relaxed", "C", 1, None), Event(0, "y", "Read", "Relaxed", "C", 1, "r1"))], [], [])

@@ -516,28 +516,56 @@ def relation_graph(relations):
     return graph
 
 
+def transitive_relations(relations):
+    graph = relation_graph(relations)
+    if not graph.nodes:
+        return []
+
+    if nx.is_directed_acyclic_graph(graph):
+        closure = nx.transitive_closure_dag(graph)
+    else:
+        closure = nx.transitive_closure(graph)
+
+    return [Relation(source, target) for source, target in closure.edges()]
+
+
 def reachable(graph, source, target):
     if source == target:
         return True
+    if source not in graph or target not in graph:
+        return False
     return nx.has_path(graph, source, target)
 
 
-def release_sequence_heads(write, mo_graph):
+def reads_from(write, read_like_event, rf):
+    for rel in rf:
+        if rel.First() == write and rel.Last() == read_like_event:
+            return True
+    return False
+
+
+def release_sequence_heads(write, mo_graph, rf):
     # RC11 release sequence:
-    # start at a write, then follow modification order through same-thread writes,
-    # plus any intervening RMWs. This is enough for the converted litmus tests and
-    # leaves the relation named explicitly as release sequence (rs).
+    # start at a write, then follow modification order as long as each immediate
+    # successor is either:
+    # - by the same thread as the head, or
+    # - an RMW that reads-from the current release-sequence member.
+    #
+    # This matches the point that an arbitrary later RMW in mo is not enough:
+    # an intervening write by another thread breaks the release sequence.
     sequence = {write}
     worklist = [write]
 
     while worklist:
         current = worklist.pop()
+        if current not in mo_graph:
+            continue
         for successor in mo_graph.successors(current):
             if canonicalize_location(successor.location) != canonicalize_location(write.location):
                 continue
             if successor in sequence:
                 continue
-            if same_thread(write, successor) or is_rmw(successor):
+            if same_thread(write, successor) or (is_rmw(successor) and reads_from(current, successor, rf)):
                 sequence.add(successor)
                 worklist.append(successor)
 
@@ -566,7 +594,7 @@ class RC11Execution:
         self.rs = self.compute_release_sequence()
         self.sw = self.compute_synchronizes_with()
         self.hb = self.compute_happens_before()
-        self.eco = self.rf + self.fr + self.mo
+        self.eco = transitive_relations(self.rf + self.fr + self.mo)
         self.sc = self.compute_sc_order_constraints()
 
     def sb_before(self, left, right):
@@ -581,7 +609,7 @@ class RC11Execution:
             writes.extend(event for event in thread if is_write(event))
 
         for head in writes:
-            members = release_sequence_heads(head, self.mo_graph)
+            members = release_sequence_heads(head, self.mo_graph, self.rf)
             for member in members:
                 rs.append(Relation(head, member))
         return rs
@@ -706,8 +734,46 @@ class RC11Execution:
     def hb_acyclic(self):
         return nx.is_directed_acyclic_graph(relation_graph(self.hb))
 
-    def hb_eco_acyclic(self):
-        return nx.is_directed_acyclic_graph(relation_graph(self.hb + self.eco))
+    def hb_eco_irreflexive(self):
+        # RC11 uses irreflexive(hb ; eco?): hb is already transitively closed,
+        # so we only need to rule out a single trailing eco edge back to the
+        # hb source. The optional identity case is covered by hb_acyclic().
+        eco_graph = relation_graph(self.eco)
+        for hb_rel in self.hb:
+            if reachable(eco_graph, hb_rel.Last(), hb_rel.First()):
+                return False
+        return True
+
+    def psc_f_acyclic(self):
+        sc_fences = [
+            event
+            for thread in self.threads
+            for event in thread
+            if is_fence(event) and is_seq_cst(event)
+        ]
+        if len(sc_fences) <= 1:
+            return True
+
+        hb_graph = relation_graph(self.hb)
+        eco_graph = relation_graph(self.eco)
+        psc_f = []
+
+        for source in sc_fences:
+            for target in sc_fences:
+                if source == target:
+                    continue
+
+                if reachable(hb_graph, source, target):
+                    psc_f.append(Relation(source, target))
+                    continue
+
+                hb_targets = {rel.Last() for rel in self.hb if rel.First() == source}
+                hb_sources = {rel.First() for rel in self.hb if rel.Last() == target}
+
+                if any(reachable(eco_graph, left, right) for left in hb_targets for right in hb_sources):
+                    psc_f.append(Relation(source, target))
+
+        return nx.is_directed_acyclic_graph(relation_graph(psc_f))
 
     def sc_order_exists(self):
         return nx.is_directed_acyclic_graph(relation_graph(self.sc))
@@ -722,7 +788,8 @@ class RC11Execution:
             nx.is_directed_acyclic_graph(relation_graph(c_no_thin_air))
             and self.per_location_sc()
             and self.hb_acyclic()
-            and self.hb_eco_acyclic()
+            and self.hb_eco_irreflexive()
+            and self.psc_f_acyclic()
             and self.sc_order_exists()
         )
 

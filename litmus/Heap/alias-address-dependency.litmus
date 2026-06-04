@@ -1,0 +1,13 @@
+{ a = x; b = x; flag = slot; }
+
+P0(int *a, int *b, int **flag){
+Write(a, 1, Release, Linux, None);
+rcu_assign_pointer(*flag, b);
+}
+
+P1(int *b, int **flag){
+r0 = rcu_dereference(*flag);
+Read(r0, None, Relaxed, Linux, r1);
+}
+
+exists (r0 = x /\ r1 = 1)
