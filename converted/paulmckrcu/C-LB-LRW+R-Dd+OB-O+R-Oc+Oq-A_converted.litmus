@@ -1,0 +1,35 @@
+{ x1=y1; }
+
+P0(intptr_t *u0, intptr_t *x1, intptr_t *x2){
+
+	Read(u0, None, Relaxed, Linux, r1_T0);
+	Write(x1, x2, Release, Linux, None);
+}
+
+P1(intptr_t *x1){
+Read(x1, None, Relaxed, Linux, r1_T1);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(r1_T1, 1, Relaxed, Linux, None);
+}
+
+P2(intptr_t *x2, intptr_t *x3){
+Read(x2, None, Relaxed, Linux, r1_T2);
+	Write(x3, 1, Release, Linux, None);
+}
+
+P3(intptr_t *x3, intptr_t *x4){
+
+	Read(x3, None, Relaxed, Linux, r1_T3);
+	if (r1_T3 == 1) {
+		Write(x4, 2, Relaxed, Linux, None);
+}
+	Write(x4, 1, Relaxed, Linux, None);
+}
+
+P4(intptr_t *x4, intptr_t *u0){
+Read(x4, None, Acquire, Linux, r1_T4);
+	Write(u0, 1, Relaxed, Linux, None);
+}
+
+exists
+(r1_T0=1 /\ r1_T1=x2 /\ r1_T2=1 /\ r1_T3=1 /\ r1_T4=1)

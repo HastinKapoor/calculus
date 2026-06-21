@@ -1,0 +1,10 @@
+{}
+
+P0(intptr_t *x0){
+Read(x0, None, Relaxed, Linux, r1);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(x0, 1, Relaxed, Linux, None);
+}
+
+exists
+(r1=1)

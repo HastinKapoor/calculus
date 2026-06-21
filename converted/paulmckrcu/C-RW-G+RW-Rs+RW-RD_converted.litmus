@@ -1,0 +1,26 @@
+{ x2=y0; }
+
+P0(intptr_t *x0, intptr_t *x1){
+Read(x0, None, Relaxed, Linux, r1_T0);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x1, 1, Relaxed, Linux, None);
+}
+
+P1(intptr_t *x0, intptr_t *x1, intptr_t *x2){
+
+	Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x1, None, Relaxed, Linux, r1_T1);
+	Write(x2, x0, Release, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+P2(intptr_t *x2, intptr_t *y0){
+
+	Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x2, None, Relaxed, Linux, r1_T2);
+	Write(r1_T2, 1, Relaxed, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+exists
+(r1_T0=1 /\ r1_T1=1 /\ r1_T2=x0)

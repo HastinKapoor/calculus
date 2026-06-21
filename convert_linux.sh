@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IN_DIR="$ROOT_DIR/litmus-tests"
 OUT_DIR="$ROOT_DIR/litmus"
-PY_SCRIPT="$ROOT_DIR/linux_to_calculus.py"
+PY_SCRIPT="$ROOT_DIR/scripts/linux_to_calculus.py"
 
 if [ ! -x "$(command -v python3)" ]; then
   echo "python3 not found" >&2

@@ -15,19 +15,34 @@ import os
 from collections import Counter, defaultdict
 
 # Patterns for macro translations
-READ_ASSIGN_RE = re.compile(r'\b(?:[A-Za-z_][\w\s\*]*\s+)?(r\d+)\s*=\s*READ_ONCE\s*\(\s*([^)]+?)\s*\)\s*;')
-READ_STANDALONE_RE = re.compile(r'\bREAD_ONCE\s*\(\s*([^)]+?)\s*\)\s*;')
-WRITE_ONCE_RE = re.compile(r'\bWRITE_ONCE\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;')
+THREAD_HEADER_LINE_RE = re.compile(r'^\s*(?:P|T)\d+\s*\([^)]*\)\s*$')
+TYPE_CAST_PREFIX_RE = re.compile(
+    r'^\(\s*(?:const\s+|volatile\s+|signed\s+|unsigned\s+)*'
+    r'(?:intptr_t|uintptr_t|size_t|ssize_t|int|long|short|char|bool|void|struct\s+\w+|union\s+\w+)'
+    r'(?:\s+(?:const|volatile|signed|unsigned|long|short|int|char|bool|void))*(?:\s*\*+)*\s*\)\s*'
+)
+DECL_ASSIGN_RE = re.compile(
+    r'^\s*(?P<prefix>(?:const|volatile|signed|unsigned|short|long|int|char|bool|void|intptr_t|uintptr_t|size_t|ssize_t|struct\s+\w+|union\s+\w+)[\w\s\*]*)\s+'
+    r'(?P<name>[A-Za-z_]\w*)\s*=\s*(?P<rhs>.+?)\s*;\s*$'
+)
+DECL_ONLY_RE = re.compile(
+    r'^\s*(?P<prefix>(?:const|volatile|signed|unsigned|short|long|int|char|bool|void|intptr_t|uintptr_t|size_t|ssize_t|struct\s+\w+|union\s+\w+)[\w\s\*]*)\s+'
+    r'(?P<rest>.+?)\s*;\s*$'
+)
+READ_RENDER_RE = re.compile(r'Read\([^,]+,\s*None,\s*[^,]+,\s*Linux,\s*(?P<reg>[A-Za-z_]\w*)\);')
+SELF_COMPARE_ASSIGN_RIGHT_RE = re.compile(
+    r'^(?P<indent>\s*)(?P<lhs>[A-Za-z_]\w*)\s*=\s*\(\s*(?P<expr>.+?)\s*(?P<op>==|!=)\s*(?P=lhs)\s*\)\s*;\s*$'
+)
+SELF_COMPARE_ASSIGN_LEFT_RE = re.compile(
+    r'^(?P<indent>\s*)(?P<lhs>[A-Za-z_]\w*)\s*=\s*\(\s*(?P=lhs)\s*(?P<op>==|!=)\s*(?P<expr>.+?)\s*\)\s*;\s*$'
+)
+IF_GUARD_RE = re.compile(
+    r'^(?P<indent>\s*)if\s*\(\s*(?P<guard>[A-Za-z_]\w*)\s*\)\s*(?P<brace>\{?)\s*$'
+)
 
-SMP_LOAD_ACQ_ASSIGN_RE = re.compile(r'\b(?:[A-Za-z_][\w\s\*]*\s+)?(r\d+)\s*=\s*smp_load_acquire\s*\(\s*([^)]+?)\s*\)\s*;')
-SMP_STORE_REL_RE = re.compile(r'\bsmp_store_release\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;')
-SMP_MB_RE = re.compile(r'\bsmp_mb\s*\(\s*\)\s*;')  # full memory barrier
-SMP_WMB_RE = re.compile(r'\bsmp_wmb\s*\(\s*\)\s*;')  # write memory barrier
-RCU_DEREFERENCE_ASSIGN_RE = re.compile(r'\b(?:[A-Za-z_][\w\s\*]*\s+)?(r\d+)\s*=\s*rcu_dereference\s*\(\s*([^)]+?)\s*\)\s*;')
-RCU_ASSIGN_POINTER_RE = re.compile(r'\brcu_assign_pointer\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;')
-SYNC_RCU_RE = re.compile(r'\bsynchronize_rcu\s*\(\s*\)\s*;')
-RCU_READ_LOCK_RE = re.compile(r'\brcu_read_lock\s*\(\s*\)\s*;')
-RCU_READ_UNLOCK_RE = re.compile(r'\brcu_read_unlock\s*\(\s*\)\s*;')
+
+def is_none_token(value) -> bool:
+    return value is None or str(value).strip() == "None"
 
 def _normalize_location(loc_raw: str) -> str:
     """
@@ -52,72 +67,233 @@ def _normalize_location(loc_raw: str) -> str:
             loc = loc[1:-1].strip()
     return loc
 
-def replace_read_assign(match):
-    reg = match.group(1)
-    loc = _normalize_location(match.group(2).strip())
-    return f"Read({loc}, None, Relaxed, Linux, {reg});"
 
-def replace_read_standalone(match):
-    loc = _normalize_location(match.group(1).strip())
-    return f"Read({loc}, None, Relaxed, Linux, None);"
+def split_args(args_str: str):
+    args = []
+    current = []
+    depth = 0
+    for ch in args_str:
+        if ch == ',' and depth == 0:
+            arg = ''.join(current).strip()
+            if arg:
+                args.append(arg)
+            current = []
+            continue
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth = max(0, depth - 1)
+        current.append(ch)
+    tail = ''.join(current).strip()
+    if tail:
+        args.append(tail)
+    return args
 
-def replace_write_once(match):
-    loc = _normalize_location(match.group(1).strip())
-    val = match.group(2).strip()
-    return f"Write({loc}, {val}, Relaxed, Linux, None);"
 
-def replace_smp_load_acq_assign(match):
-    reg = match.group(1)
-    loc = _normalize_location(match.group(2).strip())
-    return f"Read({loc}, None, Acquire, Linux, {reg});"
+def parse_call(expr: str, call_name: str):
+    stripped = expr.strip()
+    prefix = f"{call_name}("
+    if not stripped.startswith(prefix) or not stripped.endswith(')'):
+        return None
+    return split_args(stripped[len(call_name) + 1:-1])
 
-def replace_smp_store_rel(match):
-    loc = _normalize_location(match.group(1).strip())
-    val = match.group(2).strip()
-    return f"Write({loc}, {val}, Release, Linux, None);"
 
-def replace_rcu_dereference_assign(match):
-    reg = match.group(1)
-    loc = _normalize_location(match.group(2).strip())
-    return f"Read({loc}, None, Acquire, Linux, {reg});"
+def strip_leading_casts(expr: str) -> str:
+    current = expr.strip()
+    while True:
+        match = TYPE_CAST_PREFIX_RE.match(current)
+        if not match:
+            return current
+        current = current[match.end():].strip()
 
-def replace_rcu_assign_pointer(match):
-    loc = _normalize_location(match.group(1).strip())
-    val = match.group(2).strip()
-    return f"Write({loc}, {val}, Release, Linux, None);"
 
-def replace_smp_mb(match):
-    # Translate Linux full memory barrier to a SEQ_CST fence in calculus format
-    return "Fence(None, None, SEQ_CST, Linux, None);"
+def normalize_location_expression(expr: str) -> str:
+    current = expr.strip()
+    previous = None
+    while current != previous:
+        previous = current
+        if current.startswith('(') and current.endswith(')'):
+            depth = 0
+            balanced = True
+            for idx, ch in enumerate(current):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0 and idx != len(current) - 1:
+                        balanced = False
+                        break
+            if balanced and depth == 0:
+                current = current[1:-1].strip()
+                continue
+        if current.startswith('*'):
+            current = current[1:].strip()
+            continue
+        stripped_cast = strip_leading_casts(current)
+        if stripped_cast != current:
+            current = stripped_cast
+            continue
+    return _normalize_location(current)
 
-def replace_smp_wmb(match):
-    # Translate Linux write memory barrier to a WMB fence in calculus format
-    return "Fence(None, None, WMB, Linux, None);"
 
-def replace_sync_rcu(match):
-    return "Fence(None, None, SYNC_RCU, Linux, None);"
+def normalize_value_expression(expr: str) -> str:
+    current = strip_leading_casts(expr).strip()
+    previous = None
+    while current != previous:
+        previous = current
+        if current.startswith('(') and current.endswith(')'):
+            depth = 0
+            balanced = True
+            for idx, ch in enumerate(current):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0 and idx != len(current) - 1:
+                        balanced = False
+                        break
+            if balanced and depth == 0:
+                current = current[1:-1].strip()
+                continue
+        stripped_cast = strip_leading_casts(current)
+        if stripped_cast != current:
+            current = stripped_cast
+            continue
+    return current
 
-def replace_rcu_read_lock(match):
-    return "Fence(None, None, RCU_LOCK, Linux, None);"
 
-def replace_rcu_read_unlock(match):
-    return "Fence(None, None, RCU_UNLOCK, Linux, None);"
+def split_assignment(stripped: str):
+    if '=' not in stripped:
+        return None, None
+    lhs, rhs = stripped.split('=', 1)
+    return lhs.strip(), rhs.strip()
+
+
+def extract_assigned_name(lhs: str):
+    tokens = re.findall(r'[A-Za-z_]\w*', lhs)
+    if not tokens:
+        return None
+    return tokens[-1]
+
+
+def convert_assignment_line(stripped: str):
+    lhs, rhs = split_assignment(stripped.rstrip(';'))
+    if lhs is None:
+        return None
+
+    register = extract_assigned_name(lhs)
+    if register is None:
+        return None
+
+    rhs_no_cast = strip_leading_casts(rhs)
+
+    args = parse_call(rhs_no_cast, 'READ_ONCE')
+    if args and len(args) >= 1:
+        return f"Read({normalize_location_expression(args[0])}, None, Relaxed, Linux, {register});"
+
+    args = parse_call(rhs_no_cast, 'smp_load_acquire')
+    if args and len(args) >= 1:
+        return f"Read({normalize_location_expression(args[0])}, None, Acquire, Linux, {register});"
+
+    args = parse_call(rhs_no_cast, 'rcu_dereference')
+    if args and len(args) >= 1:
+        return f"Read({normalize_location_expression(args[0])}, None, Relaxed, Linux, {register});"
+
+    args = parse_call(rhs_no_cast, 'spin_is_locked')
+    if args and len(args) >= 1:
+        return f"Read({normalize_location_expression(args[0])}, None, Relaxed, Linux, {register});"
+
+    if rhs_no_cast.startswith('*'):
+        return f"Read({normalize_location_expression(rhs_no_cast)}, None, Relaxed, Linux, {register});"
+
+    return None
+
+
+def convert_standalone_line(stripped: str):
+    args = parse_call(stripped.rstrip(';'), 'spin_lock')
+    if args and len(args) >= 1:
+        location = normalize_location_expression(args[0])
+        return (
+            f"Read({location}, 0, LOCK_READ, Linux, None);\n"
+            f"Write({location}, 1, LOCK_WRITE, Linux, None);"
+        )
+
+    args = parse_call(stripped.rstrip(';'), 'spin_unlock')
+    if args and len(args) >= 1:
+        return f"Write({normalize_location_expression(args[0])}, 0, UNLOCK, Linux, None);"
+
+    args = parse_call(stripped.rstrip(';'), 'WRITE_ONCE')
+    if args and len(args) >= 2:
+        return f"Write({normalize_location_expression(args[0])}, {normalize_value_expression(args[1])}, Relaxed, Linux, None);"
+
+    args = parse_call(stripped.rstrip(';'), 'smp_store_release')
+    if args and len(args) >= 2:
+        return f"Write({normalize_location_expression(args[0])}, {normalize_value_expression(args[1])}, Release, Linux, None);"
+
+    args = parse_call(stripped.rstrip(';'), 'rcu_assign_pointer')
+    if args and len(args) >= 2:
+        return f"Write({normalize_location_expression(args[0])}, {normalize_value_expression(args[1])}, Release, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'smp_mb') is not None:
+        return "Fence(None, None, SEQ_CST, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'smp_wmb') is not None:
+        return "Fence(None, None, WMB, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'smp_rmb') is not None:
+        return "Fence(None, None, RMB, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'smp_mb__after_spinlock') is not None:
+        return "Fence(None, None, AFTER_SPINLOCK, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'smp_mb__after_unlock_lock') is not None:
+        return "Fence(None, None, AFTER_UNLOCK_LOCK, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'synchronize_rcu') is not None:
+        return "Fence(None, None, SYNC_RCU, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'rcu_read_lock') is not None:
+        return "Fence(None, None, RCU_LOCK, Linux, None);"
+
+    if parse_call(stripped.rstrip(';'), 'rcu_read_unlock') is not None:
+        return "Fence(None, None, RCU_UNLOCK, Linux, None);"
+
+    lhs, rhs = split_assignment(stripped.rstrip(';'))
+    if lhs is not None and lhs.startswith('*'):
+        return f"Write({normalize_location_expression(lhs)}, {normalize_value_expression(rhs)}, Relaxed, Linux, None);"
+
+    args = parse_call(stripped.rstrip(';'), 'READ_ONCE')
+    if args and len(args) >= 1:
+        return f"Read({normalize_location_expression(args[0])}, None, Relaxed, Linux, None);"
+
+    return None
+
 
 def convert_text(text: str) -> str:
-    # Apply macro translations (order matters)
-    text = SMP_MB_RE.sub(replace_smp_mb, text)
-    text = SMP_WMB_RE.sub(replace_smp_wmb, text)
-    text = SYNC_RCU_RE.sub(replace_sync_rcu, text)
-    text = RCU_READ_LOCK_RE.sub(replace_rcu_read_lock, text)
-    text = RCU_READ_UNLOCK_RE.sub(replace_rcu_read_unlock, text)
-    text = SMP_LOAD_ACQ_ASSIGN_RE.sub(replace_smp_load_acq_assign, text)
-    text = RCU_DEREFERENCE_ASSIGN_RE.sub(replace_rcu_dereference_assign, text)
-    text = READ_ASSIGN_RE.sub(replace_read_assign, text)
-    text = WRITE_ONCE_RE.sub(replace_write_once, text)
-    text = SMP_STORE_REL_RE.sub(replace_smp_store_rel, text)
-    text = RCU_ASSIGN_POINTER_RE.sub(replace_rcu_assign_pointer, text)
-    text = READ_STANDALONE_RE.sub(replace_read_standalone, text)
-    return text
+    converted_lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            converted_lines.append(line)
+            continue
+
+        converted = convert_assignment_line(stripped)
+        if converted is None:
+            converted = convert_standalone_line(stripped)
+
+        if converted is None:
+            converted_lines.append(line)
+        else:
+            indent = line[:len(line) - len(line.lstrip())]
+            if "\n" in converted:
+                converted_lines.extend(
+                    indent + converted_line
+                    for converted_line in converted.splitlines()
+                )
+            else:
+                converted_lines.append(indent + converted)
+
+    return '\n'.join(converted_lines)
 
 # Structural cleanup & formatting for calculus_test parser
 def remove_comments(text: str) -> str:
@@ -129,12 +305,23 @@ def remove_comments(text: str) -> str:
     # Remove C-style block comments /* ... */
     text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
 
-    # Remove OCaml-style block comments (* ... *) repeatedly (non-greedy)
-    while True:
-        new_text = re.sub(r'\(\*.*?\*\)', '', text, flags=re.S)
-        if new_text == text:
-            break
-        text = new_text
+    # Remove OCaml-style block comments only when they begin at the start of a line.
+    # This avoids corrupting pointer expressions like "(*u0)" or "(*(intptr_t **)x2)".
+    lines = text.splitlines()
+    filtered = []
+    in_ocaml_comment = False
+    for line in lines:
+        stripped = line.lstrip()
+        if in_ocaml_comment:
+            if '*)' in stripped:
+                in_ocaml_comment = False
+            continue
+        if stripped.startswith('(*'):
+            if '*)' not in stripped:
+                in_ocaml_comment = True
+            continue
+        filtered.append(line)
+    text = '\n'.join(filtered)
 
     # Remove C++ style line comments //
     text = re.sub(r'//.*$', '', text, flags=re.M)
@@ -159,33 +346,38 @@ def bring_brace_up(text: str) -> str:
     return text
 
 def collapse_top_level_brace_blocks(text: str) -> str:
-    # Collapse standalone brace blocks (often used for initializations) into single-line { ... }
+    # Collapse only the simple pre-thread initialization block into single-line { ... }.
     lines = text.splitlines()
     i = 0
     out_lines = []
+    seen_thread = False
     while i < len(lines):
         ln = lines[i]
-        if ln.strip() == '{':
-            # find matching closing brace on its own line
+        if THREAD_HEADER_LINE_RE.match(ln.strip()):
+            seen_thread = True
+
+        if not seen_thread and ln.strip() == '{':
             j = i + 1
             content_lines = []
-            while j < len(lines) and lines[j].strip() != '}':
-                content_lines.append(lines[j].strip())
+            simple_block = True
+            while j < len(lines):
+                stripped = lines[j].strip()
+                if stripped == '}':
+                    break
+                if stripped == '' or '{' in stripped or '}' in stripped or THREAD_HEADER_LINE_RE.match(stripped):
+                    simple_block = False
+                    break
+                content_lines.append(stripped)
                 j += 1
-            if j < len(lines) and lines[j].strip() == '}':
-                # collapse
+
+            if simple_block and j < len(lines) and lines[j].strip() == '}':
                 inner = ' '.join([c for c in content_lines if c != ''])
                 out_lines.append('{' + ((' ' + inner + ' ') if inner else '') + '}')
                 i = j + 1
                 continue
-            else:
-                # unmatched, fallthrough
-                out_lines.append(ln)
-                i += 1
-                continue
-        else:
-            out_lines.append(ln)
-            i += 1
+
+        out_lines.append(ln)
+        i += 1
     return '\n'.join(out_lines)
 
 def normalize_whitespace(text: str) -> str:
@@ -238,43 +430,106 @@ def _find_process_blocks(text: str):
         })
     return blocks
 
+def _resolve_alias_value(value: str, aliases):
+    current = value.strip()
+    for _ in range(8):
+        if current in aliases:
+            nxt = aliases[current].strip()
+            if nxt == current:
+                break
+            current = nxt
+            continue
+        break
+    return current
+
+def _extract_declared_names(rest: str):
+    names = []
+    for part in rest.split(','):
+        tokens = re.findall(r'[A-Za-z_]\w*', part)
+        if tokens:
+            names.append(tokens[-1])
+    return names
+
 def _remove_local_decls_and_collect(body: str):
     """
-    Remove local variable declarations like:
-      int r0;
-      int r0 = 0;
-      unsigned long foo;
-    Return new_body, list_of_local_names
+    Remove local declarations, recording their names and simple initializer aliases
+    so later references can be substituted into translated event lines.
     """
     lines = body.splitlines()
     new_lines = []
     local_names = []
-    decl_re = re.compile(r'^\s*(?:int|unsigned|long|short|char|bool)\b[^;]*\b(?P<name>[A-Za-z_]\w*)\s*(?:=\s*[^;]+)?\s*;\s*$')
+    aliases = {}
     for ln in lines:
-        m = decl_re.match(ln)
+        m = DECL_ASSIGN_RE.match(ln)
         if m:
             local_names.append(m.group('name'))
-            # drop declaration line
+            aliases[m.group('name')] = m.group('rhs').strip()
             continue
-        # also handle simple 'int r0, r1;' form
-        m2 = re.match(r'^\s*(?:int|unsigned|long|short|char|bool)\b\s+(?P<rest>[^;]+)\s*;\s*$', ln)
+
+        m2 = DECL_ONLY_RE.match(ln)
         if m2:
-            rest = m2.group('rest')
-            # split by commas and extract names (ignore initializers)
-            parts = [p.strip() for p in rest.split(',')]
-            extracted = []
-            for p in parts:
-                name_m = re.match(r'(?P<name>[A-Za-z_]\w*)', p)
-                if name_m:
-                    extracted.append(name_m.group('name'))
+            extracted = _extract_declared_names(m2.group('rest'))
             if extracted:
                 local_names.extend(extracted)
                 continue
+
         new_lines.append(ln)
-    return '\n'.join(new_lines), local_names
+    return '\n'.join(new_lines), local_names, aliases
 
 def _replace_word(text: str, old: str, new: str):
     return re.sub(r'\b' + re.escape(old) + r'\b', new, text)
+
+
+def _replace_aliases_in_line(line: str, aliases) -> str:
+    assign_match = re.match(r'^(?P<indent>\s*)(?P<lhs>[A-Za-z_]\w*)\s*=\s*(?P<rhs>.+)$', line)
+    if assign_match:
+        rhs = assign_match.group('rhs')
+        for old, new in aliases.items():
+            rhs = _replace_word(rhs, old, new)
+        return f"{assign_match.group('indent')}{assign_match.group('lhs')} = {rhs}"
+
+    if_match = re.match(r'^(?P<indent>\s*)if\s*\(\s*(?P<guard>.+?)\s*\)(?P<suffix>\s*\{?\s*)$', line)
+    if if_match:
+        guard = if_match.group('guard')
+        for old, new in aliases.items():
+            guard = _replace_word(guard, old, new)
+        return f"{if_match.group('indent')}if ({guard}){if_match.group('suffix')}"
+
+    updated = line
+    for old, new in aliases.items():
+        updated = _replace_word(updated, old, new)
+    return updated
+
+
+def _fold_guard_temporaries(body: str, aliases) -> str:
+    lines = body.splitlines()
+    if not lines:
+        return body
+
+    output = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = SELF_COMPARE_ASSIGN_RIGHT_RE.match(line) or SELF_COMPARE_ASSIGN_LEFT_RE.match(line)
+        if match:
+            lhs = match.group('lhs')
+            alias_value = aliases.get(lhs)
+            if alias_value is not None:
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines):
+                    if_match = IF_GUARD_RE.match(lines[j])
+                    if if_match and if_match.group('guard') == lhs:
+                        output.append(
+                            f"{if_match.group('indent')}if ({match.group('expr').strip()} {match.group('op')} {alias_value}) {if_match.group('brace')}".rstrip()
+                        )
+                        i = j + 1
+                        continue
+        output.append(line)
+        i += 1
+
+    return '\n'.join(output)
 
 def process_locals_and_rename(text: str) -> str:
     """
@@ -290,9 +545,28 @@ def process_locals_and_rename(text: str) -> str:
     # Process each block to remove local decls and collect names
     locals_by_tid = {}
     new_bodies = {}
+    aliases_by_tid = {}
     for b in blocks:
-        new_body, names = _remove_local_decls_and_collect(b['body'])
-        locals_by_tid[b['tid']] = names
+        new_body, names, aliases = _remove_local_decls_and_collect(b['body'])
+        resolved_aliases = {
+            name: _resolve_alias_value(value, aliases)
+            for name, value in aliases.items()
+        }
+        new_body = _fold_guard_temporaries(new_body, resolved_aliases)
+        new_body = '\n'.join(
+            _replace_aliases_in_line(line, resolved_aliases)
+            for line in new_body.splitlines()
+        )
+
+        rendered_regs = [
+            reg for reg in READ_RENDER_RE.findall(new_body)
+            if not is_none_token(reg)
+        ]
+        locals_by_tid[b['tid']] = [
+            name for name in names + rendered_regs
+            if not is_none_token(name)
+        ]
+        aliases_by_tid[b['tid']] = resolved_aliases
         new_bodies[b['tid']] = new_body
 
     # Find names that occur in more than one thread
@@ -306,7 +580,7 @@ def process_locals_and_rename(text: str) -> str:
         rename_map = defaultdict(dict)  # tid -> {old: new}
         for tid, names in locals_by_tid.items():
             for name in names:
-                if name in conflicts:
+                if name in conflicts and not is_none_token(name):
                     rename_map[tid][name] = f"{name}_T{tid}"
 
         # Apply renames inside each process body
@@ -329,17 +603,7 @@ def process_locals_and_rename(text: str) -> str:
                     # also replace "Ttid:old" forms if present (unlikely), e.g., "1:r0" handled above
             return exists_text
 
-        # perform replacements: find exists lines and update
-        def _update_exists_lines(txt: str):
-            lines = txt.splitlines()
-            updated = []
-            for ln in lines:
-                if ln.strip().lower().startswith('exists'):
-                    ln = _replace_in_exists(ln)
-                updated.append(ln)
-            return '\n'.join(updated)
-
-        text = _update_exists_lines(text)
+        text = _replace_in_exists(text)
 
     # Reconstruct text with updated process bodies (and removed declarations)
     # We'll do safe replacement using the spans captured earlier: iterate blocks in reverse order so indices remain valid
@@ -355,15 +619,21 @@ def process_locals_and_rename(text: str) -> str:
 def strip_thread_prefixes_in_exists(text: str) -> str:
     """
     Remove numeric thread prefixes like "1:" from the 'exists' line(s).
-    e.g. "exists (1:r0=1 /\ 2:r1=0)" -> "exists (r0=1 /\ r1=0)"
+    e.g. "exists (1:r0=1 /\\ 2:r1=0)" -> "exists (r0=1 /\\ r1=0)"
     """
-    def fix_line(ln: str) -> str:
-        if ln.strip().lower().startswith('exists'):
-            # remove occurrences of '<digits>:' possibly with surrounding whitespace
-            return re.sub(r'\b\d+\s*:\s*', '', ln)
-        return ln
-
-    return '\n'.join(fix_line(ln) for ln in text.splitlines())
+    updated = []
+    in_exists = False
+    for ln in text.splitlines():
+        stripped = ln.strip().lower()
+        if stripped.startswith('exists'):
+            in_exists = True
+            updated.append(re.sub(r'\b\d+\s*:\s*', '', ln))
+            continue
+        if in_exists:
+            updated.append(re.sub(r'\b\d+\s*:\s*', '', ln))
+        else:
+            updated.append(ln)
+    return '\n'.join(updated)
 
 def convert_and_format(text: str) -> str:
     """

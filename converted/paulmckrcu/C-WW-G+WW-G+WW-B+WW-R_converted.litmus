@@ -1,0 +1,29 @@
+{}
+
+P0(intptr_t *x0, intptr_t *x1){
+Write(x0, 2, Relaxed, Linux, None);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x1, 1, Relaxed, Linux, None);
+}
+
+P1(intptr_t *x1, intptr_t *x2){
+Write(x1, 2, Relaxed, Linux, None);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x2, 1, Relaxed, Linux, None);
+}
+
+P2(intptr_t *x2, intptr_t *x3){
+Write(x2, 2, Relaxed, Linux, None);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(x3, 1, Relaxed, Linux, None);
+}
+
+P3(intptr_t *x0, intptr_t *x3){
+Fence(None, None, RCU_LOCK, Linux, None);
+	Write(x3, 2, Relaxed, Linux, None);
+	Write(x0, 1, Relaxed, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+exists
+(x0=2 /\ x1=2 /\ x2=2 /\ x3=2)

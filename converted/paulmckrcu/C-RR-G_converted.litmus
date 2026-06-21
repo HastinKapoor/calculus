@@ -1,0 +1,14 @@
+{}
+
+P0(intptr_t *x0){
+Read(x0, None, Relaxed, Linux, r1);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Read(x0, None, Relaxed, Linux, r2);
+}
+
+P1(intptr_t *x0){
+Write(x0, 1, Relaxed, Linux, None);
+}
+
+exists
+(r2=0 /\ r1=1)

@@ -18,6 +18,17 @@ __pycache__/
 *.swp
 *.swo
 .DS_Store
+reports/
+
+# Local backup / throwaway copies
+*_backup.py
+*_backup.sh
+*_backup.txt
+*_backup.md
+*.bak
+*.orig
+*.rej
+*~
 
 # Large generated litmus suites
 converted/Allowed_C11_strength_variants/
@@ -25,3 +36,9 @@ converted/Allowed_C11_strength_variants_Interchangeability/
 converted/Allowed_C11_strength_variants_thread_Interchangeability/
 converted/Kernel_strength_variants/
 converted/Dat3M/
+
+# Generated/filtered local suites and analysis outputs
+converted/paulmckrcu filtered/
+converted/CONVERSION_REPORT.md
+litmus/paulmckrcu filtered/
+litmus/paulmckrcu litmus master auto/

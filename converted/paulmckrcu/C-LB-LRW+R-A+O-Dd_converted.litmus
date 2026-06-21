@@ -1,0 +1,20 @@
+{ x2=y2; }
+
+P0(intptr_t *u0, intptr_t *x1){
+Read(u0, None, Relaxed, Linux, r1_T0);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(intptr_t *u0, intptr_t *x1, intptr_t *x2){
+
+	Read(x1, None, Acquire, Linux, r1_T1);
+	Write(x2, u0, Relaxed, Linux, None);
+}
+
+P2(intptr_t *x2){
+Read(x2, None, Relaxed, Linux, r1_T2);
+	Write(r1_T2, 1, Relaxed, Linux, None);
+}
+
+exists
+(r1_T0=1 /\ r1_T1=1 /\ r1_T2=u0)

@@ -728,6 +728,22 @@ def ToRCUFence(e, rcu_order):
 
     return result
 
+def ToRCUFenceSuffixTerminals(fence_terminal, hb_star, pb_star):
+    hb_terminals = [fence_terminal]
+
+    for hb in hb_star:
+        if hb.Initial() == fence_terminal and hb.Terminal() not in hb_terminals:
+            hb_terminals.append(hb.Terminal())
+
+    result = hb_terminals.copy()
+
+    for hb_terminal in hb_terminals:
+        for pb in pb_star:
+            if pb.Initial() == hb_terminal and pb.Terminal() not in result:
+                result.append(pb.Terminal())
+
+    return result
+
 def ToRCUBefore(e):
     if HappensBefore(e) or PropagatesBefore(e):
         return []
@@ -751,17 +767,8 @@ def ToRCUBefore(e):
         for fence in rcu_fence:
             if not prop.SingleComposes(fence):
                 continue
-            prop_fence = Relation(prop.Initial(), fence.Terminal())
-            for hb in hb_star:
-                if not prop_fence.SingleComposes(hb):
-                    continue
-                prop_fence_hb = Relation(prop.Initial(), hb.Terminal())
-                for pb_rel in pb_star:
-                    if prop_fence_hb.SingleComposes(pb_rel):
-                        AddUniqueRelation(
-                            result,
-                            Relation(prop_fence_hb.Initial(), pb_rel.Terminal()),
-                        )
+            for terminal in ToRCUFenceSuffixTerminals(fence.Terminal(), hb_star, pb_star):
+                AddUniqueRelation(result, Relation(prop.Initial(), terminal))
 
     return result
 

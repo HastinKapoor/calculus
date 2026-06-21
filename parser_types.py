@@ -21,6 +21,11 @@ class MemoryOrder(Enum):
     SYNC_RCU = 8
     RCU_LOCK = 9
     RCU_UNLOCK = 10
+    LOCK_READ = 11
+    LOCK_WRITE = 12
+    UNLOCK = 13
+    AFTER_SPINLOCK = 14
+    AFTER_UNLOCK_LOCK = 15
     
 class Language(Enum):
     C = 1

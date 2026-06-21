@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
-"""Convert C11/LKMM litmus tests into the calculus litmus format."""
+"""Legacy converter for C11/LKMM litmus tests.
+
+The current Linux/RCU translation path uses `scripts/linux_to_calculus.py`.
+Keep this script for older C11/LKMM conversion workflows.
+"""
 
 from __future__ import annotations
 
@@ -419,7 +423,7 @@ def parse_assignment(
                 op="Read",
                 location=normalize_location(rcu_match.group(1)),
                 value="None",
-                memory_order="Acquire",
+                memory_order="Relaxed",
                 language=language,
                 register=reg,
             )
