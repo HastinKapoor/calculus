@@ -26,6 +26,7 @@ Kept example inputs:
 
 - Linux litmus examples under `litmus/Kernel/`
 - C litmus examples under `litmus/c/`, including the restored C11 litmus suite
+- Paul McKenney RCU source litmus files under `litmus/paulmckrcu/`
 - Example translated Linux litmus files under `converted/Kernel/`
 - Paul McKenney RCU translated litmus files under `converted/paulmckrcu/`
 - Example translated C litmus files under `converted/c/`
@@ -33,6 +34,7 @@ Kept example inputs:
 Notes on the Linux corpus:
 
 - `litmus/Kernel/` also includes several Linux litmus tests with `RCU_...` names.
+- `litmus/paulmckrcu/` is the imported source subset that matches `converted/paulmckrcu/` one-for-one by filename.
 
 Kept scripts:
 
