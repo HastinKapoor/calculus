@@ -1,8 +1,0 @@
-{ ptr = slot; slot = data; [data] = 1; }
-
-P0(int **ptr){
-Read(ptr, None, Acquire, C, r0);
-Read(r0, None, Relaxed, C, r1);
-}
-
-exists (r0 = data /\ r1 = 1)

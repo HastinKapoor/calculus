@@ -1,31 +1,39 @@
 # Calculus Artifact Branch
 
-This branch is trimmed for artifact evaluation. The evaluator-facing workflow is:
+This branch keeps the artifact-facing translation and evaluation path only.
 
-1. Translate a Linux `.litmus` file or an RC11/C `.c` litmus test into the repository's calculus litmus format.
-2. Run the translated test through `calculus_test.py` to obtain an `Allowed` or `Forbidden` result.
+Workflow:
+
+1. Start from a Linux `.litmus` file or a C `.c` litmus test.
+2. Translate it into the repository's calculus litmus format.
+3. Run `calculus_test.py` to obtain `Allowed` or `Forbidden`.
 
 Use the single entry point:
 
 ```bash
-python3 run_artifact_pipeline.py path/to/test.litmus
-python3 run_artifact_pipeline.py path/to/test.c
+python3 scripts/run_artifact_pipeline.py path/to/test.litmus
+python3 scripts/run_artifact_pipeline.py path/to/test.c
 ```
 
 Useful options:
 
 ```bash
-python3 run_artifact_pipeline.py path/to/test.c --keep-translated /tmp/test.litmus
-python3 run_artifact_pipeline.py converted/rc11/SB.litmus --kind converted
+python3 scripts/run_artifact_pipeline.py path/to/test.c --keep-translated /tmp/test.litmus
+python3 scripts/run_artifact_pipeline.py converted/c/SB.litmus --kind converted
 ```
 
-Supported inputs:
+Kept example inputs:
 
-- Linux litmus tests handled by `scripts/linux_to_calculus.py`
-- RC11/C litmus tests handled by `rc11_to_calculus.py`
+- Linux litmus examples under `litmus/Kernel/` and `litmus/RCU/`
+- C litmus examples under `litmus/c/`
+- Example translated C litmus files under `converted/c/`
 
-Current RC11/C limitation:
+Kept scripts:
+
+- `scripts/run_artifact_pipeline.py` for the full evaluator workflow
+- `scripts/linux_to_calculus.py` for Linux litmus translation
+- `scripts/c_to_calculus.py` for C litmus translation
+
+Current C limitation:
 
 - Atomic RMW/CAS operations such as `atomic_fetch_add_explicit(...)` are rejected with a clear error instead of producing malformed translated output.
-
-Files and scripts kept on this branch are intended to support the translation-and-evaluation path above. Internal comparison scripts, reports, generated processing outputs, and TODO artifacts have been removed from this branch.

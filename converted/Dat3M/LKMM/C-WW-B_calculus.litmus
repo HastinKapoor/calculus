@@ -1,7 +1,0 @@
-P0(x0) {
-	Write(x0, 2, Relaxed, Linux, None);
-	Fence(None, None, SEQ_CST, Linux, None);
-	Write(x0, 1, Relaxed, Linux, None);
-}
-
-exists (x0=2)
