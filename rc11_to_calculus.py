@@ -15,7 +15,6 @@ Usage:
 import re
 import argparse
 from pathlib import Path
-from collections import defaultdict
 
 # Map C11 memory orders to calculus names
 ORDER_MAP = {
@@ -25,6 +24,10 @@ ORDER_MAP = {
     'memory_order_release': 'Release',
     'memory_order_acq_rel': 'ACQ_REL',
 }
+
+
+class UnsupportedConstructError(Exception):
+    pass
 
 def remove_comments(text: str) -> str:
     # remove C-style block comments and C++ // comments
@@ -98,6 +101,7 @@ def convert_thread_body(body: str, tid: int, global_assign_map: dict):
     Record mapping from global variables assigned from registers to register names in global_assign_map.
     """
     stmts = []
+    unsupported = []
     # split on semicolons, keep ordering
     parts = [p.strip() for p in body.split(';')]
     # keep a mapping of original register names in this thread -> qualified reg name
@@ -164,20 +168,32 @@ def convert_thread_body(body: str, tid: int, global_assign_map: dict):
                 stmts.append(f"Write({lhs}, None, SEQ_CST, C, None);")
                 continue
 
-        # fallback: emit as comment-like no-op (kept as-is to aid debugging)
+        # Surface unsupported constructs instead of emitting malformed litmus.
         cleaned = part.replace('\n', ' ').strip()
         if cleaned:
-            stmts.append(f"// UNHANDLED: {cleaned};")
-    return stmts
+            unsupported.append(f"T{tid}: {cleaned}")
+    return stmts, unsupported
 
 def convert_file_text(text: str):
     text = remove_comments(text)
     threads = parse_threads(text)
     converted_threads = []
     global_assign_map = {}  # global var -> qualified reg (e.g., a -> r0_T0)
+    unsupported = []
     for tid, (name, body) in enumerate(threads):
-        stmts = convert_thread_body(body, tid, global_assign_map)
+        stmts, thread_unsupported = convert_thread_body(body, tid, global_assign_map)
         converted_threads.append((tid, name, stmts))
+        unsupported.extend(thread_unsupported)
+
+    if unsupported:
+        joined = "\n".join(f"  - {entry}" for entry in unsupported)
+        raise UnsupportedConstructError(
+            "Unsupported RC11/C constructs encountered during conversion:\n"
+            f"{joined}\n"
+            "The artifact branch currently supports loads, stores, fences, and simple "
+            "register-to-global result assignments. Atomic RMW/CAS operations are not supported."
+        )
+
     # parse final assert and convert to exists
     cond = extract_assert_condition(text)
     exists_line = cond_to_exists(cond, global_assign_map)
@@ -214,20 +230,37 @@ def main():
         print(f"Input not found: {inp}")
         return
 
+    failures = []
+
     if inp.is_dir():
         out_dir = Path(args.output) if args.output else Path.cwd() / 'litmus'
         out_dir.mkdir(parents=True, exist_ok=True)
         for f in sorted(inp.glob('*.c')):
             out_path = out_dir / (f.stem + '.litmus')
-            process_path(f, out_path)
+            try:
+                process_path(f, out_path)
+            except UnsupportedConstructError as exc:
+                failures.append((f, str(exc)))
+                continue
             print(f"Wrote {out_path}")
     else:
         outp = Path(args.output) if args.output else None
-        if outp:
-            process_path(inp, outp)
-            print(f"Wrote {outp}")
-        else:
-            print(convert_file_text(inp.read_text()))
+        try:
+            converted = convert_file_text(inp.read_text())
+            if outp:
+                outp.parent.mkdir(parents=True, exist_ok=True)
+                outp.write_text(converted)
+                print(f"Wrote {outp}")
+            else:
+                print(converted)
+        except UnsupportedConstructError as exc:
+            failures.append((inp, str(exc)))
+
+    if failures:
+        for path, message in failures:
+            print(f"Conversion failed for {path}:", flush=True)
+            print(message, flush=True)
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
