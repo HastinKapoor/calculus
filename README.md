@@ -24,15 +24,14 @@ python3 scripts/run_artifact_pipeline.py converted/c/SB.litmus --kind converted
 
 Kept example inputs:
 
-- Linux litmus examples under `litmus/Kernel/` and `litmus/RCU/`
+- Linux litmus examples under `litmus/Kernel/`
 - C litmus examples under `litmus/c/`
-- Example translated Linux litmus files under `converted/Kernel/` and `converted/RCU/`
+- Example translated Linux litmus files under `converted/Kernel/`
 - Paul McKenney RCU translated litmus files under `converted/paulmckrcu/`
 - Example translated C litmus files under `converted/c/`
 
 Notes on the Linux corpus:
 
-- `litmus/RCU/` contains the dedicated C-style RCU litmus tests.
 - `litmus/Kernel/` also includes several Linux litmus tests with `RCU_...` names.
 
 Kept scripts:
