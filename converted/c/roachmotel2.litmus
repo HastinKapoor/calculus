@@ -1,0 +1,26 @@
+{ [a] = 0; [x] = 0; [y] = 0; [z] = 0; }
+
+P0(){
+Write(a, 1, Relaxed, C, None);
+Write(z, 1, Release, C, None);
+}
+
+P1(){
+Read(x, None, Relaxed, C, r0_T1);
+if (r0_T1) {
+Read(z, None, Acquire, C, r1_T1);
+Read(a, None, Relaxed, C, r2_T1);
+if (r2_T1) {
+Write(y, 1, Relaxed, C, None);
+}
+}
+}
+
+P2(){
+Read(y, None, Relaxed, C, r3_T2);
+if (r3_T2) {
+Write(x, 1, Relaxed, C, None);
+}
+}
+
+exists (a=1 /\ z=1 /\ x=1 /\ y=1)

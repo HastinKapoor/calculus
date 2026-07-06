@@ -1,0 +1,20 @@
+{ [x] = 0; [y] = 0; }
+
+P0(){
+Write(x, 2, Relaxed, C, None);
+}
+
+P1(){
+Write(y, 1, Relaxed, C, None);
+Write(x, 1, Release, C, None);
+Write(x, 3, Relaxed, C, None);
+}
+
+P2(){
+Read(x, None, Acquire, C, r0_T2);
+if (r0_T2 == 3) {
+Read(y, None, Relaxed, C, r1_T2);
+}
+}
+
+exists (x=3 /\ y=1)

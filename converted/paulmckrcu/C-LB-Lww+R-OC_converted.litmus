@@ -1,0 +1,18 @@
+{}
+
+P0(intptr_t *u0, intptr_t *x1){
+Write(u0, 3, Relaxed, Linux, None);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(intptr_t *u0, intptr_t *x1){
+
+	Read(x1, None, Relaxed, Linux, r1);
+	if (r1 == 1) {
+		Fence(None, None, RMB, Linux, None);
+		Write(u0, 1, Relaxed, Linux, None);
+}
+}
+
+exists
+(u0=3 /\ r1=1)

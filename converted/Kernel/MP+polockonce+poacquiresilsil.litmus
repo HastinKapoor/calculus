@@ -1,7 +1,7 @@
 {}
 
 P0(spinlock_t *lo, int *x){
-Read(lo, None, LOCK_READ, Linux, None);
+Read(lo, 0, LOCK_READ, Linux, None);
 	Write(lo, 1, LOCK_WRITE, Linux, None);
 	Write(x, 1, Relaxed, Linux, None);
 	Write(lo, 0, UNLOCK, Linux, None);

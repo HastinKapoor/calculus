@@ -1,19 +1,21 @@
 {}
 
 P0(spinlock_t *s, spinlock_t *t, int *x, int *y){
-spin_lock(s);
+Read(s, 0, LOCK_READ, Linux, None);
+	Write(s, 1, LOCK_WRITE, Linux, None);
 	Write(x, 1, Relaxed, Linux, None);
-	spin_unlock(s);
-	spin_lock(t);
+	Write(s, 0, UNLOCK, Linux, None);
+	Read(t, 0, LOCK_READ, Linux, None);
+	Write(t, 1, LOCK_WRITE, Linux, None);
 	Write(y, 1, Relaxed, Linux, None);
-	spin_unlock(t);
+	Write(t, 0, UNLOCK, Linux, None);
 }
 
 P1(int *x, int *y){
 
-	Read(y, None, Relaxed, Linux, r1);
-	smp_rmb();
-	Read(x, None, Relaxed, Linux, r2);
+	Read(y, None, Relaxed, Linux, r1_T1);
+	Fence(None, None, RMB, Linux, None);
+	Read(x, None, Relaxed, Linux, r2_T1);
 }
 
-exists (r1=1 /\ r2=0)
+exists (r1_T1=1 /\ r2_T1=0)

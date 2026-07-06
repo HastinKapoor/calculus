@@ -8,9 +8,9 @@ Write(buf, 1, Relaxed, Linux, None);
 
 P1(int *buf, int *flag){
 
-	Read(flag, None, Relaxed, Linux, r0);
-	smp_rmb();
-	Read(buf, None, Relaxed, Linux, r1);
+	Read(flag, None, Relaxed, Linux, r0_T1);
+	Fence(None, None, RMB, Linux, None);
+	Read(buf, None, Relaxed, Linux, r1_T1);
 }
 
-exists (r0=1 /\ r1=0)
+exists (r0_T1=1 /\ r1_T1=0)

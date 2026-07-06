@@ -8,10 +8,10 @@ Write(x, 1, Relaxed, Linux, None);
 
 P1(int *x, int *y){
 
-	Read(y, None, Relaxed, Linux, r0);
-	if(r0 == 1){
-		Read(x, None, Relaxed, Linux, r1);
+	Read(y, None, Relaxed, Linux, r0_T1);
+	if (r0_T1 == 1){
+		Read(x, None, Relaxed, Linux, r1_T1);
 }
 }
 
-exists (r0=1 /\ r1=0)
+exists (r0_T1=1 /\ r1_T1=0)

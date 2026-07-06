@@ -2,17 +2,19 @@
 
 P0(int *buf, int *flag, spinlock_t *mylock){
 Write(buf, 1, Relaxed, Linux, None);
-	spin_lock(mylock);
+	Read(mylock, 0, LOCK_READ, Linux, None);
+	Write(mylock, 1, LOCK_WRITE, Linux, None);
 	Write(flag, 1, Relaxed, Linux, None);
-	spin_unlock(mylock);
+	Write(mylock, 0, UNLOCK, Linux, None);
 }
 
 P1(int *buf, int *flag, spinlock_t *mylock){
 
-	spin_lock(mylock);
-	Read(flag, None, Relaxed, Linux, r0);
-	spin_unlock(mylock);
-	Read(buf, None, Relaxed, Linux, r1);
+	Read(mylock, 0, LOCK_READ, Linux, None);
+	Write(mylock, 1, LOCK_WRITE, Linux, None);
+	Read(flag, None, Relaxed, Linux, r0_T1);
+	Write(mylock, 0, UNLOCK, Linux, None);
+	Read(buf, None, Relaxed, Linux, r1_T1);
 }
 
-exists (r0=1 /\ r1=0)
+exists (r0_T1=1 /\ r1_T1=0)

@@ -1,0 +1,19 @@
+{}
+
+P0(intptr_t *u0, intptr_t *x1){
+Write(u0, 3, Relaxed, Linux, None);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(intptr_t *x1, intptr_t *x2){
+Read(x1, None, Acquire, Linux, r1_T1);
+	Write(x2, 1, Release, Linux, None);
+}
+
+P2(intptr_t *x2, intptr_t *u0){
+Read(x2, None, Acquire, Linux, r1_T2);
+	Write(u0, 1, Relaxed, Linux, None);
+}
+
+exists
+(u0=3 /\ r1_T1=1 /\ r1_T2=1)

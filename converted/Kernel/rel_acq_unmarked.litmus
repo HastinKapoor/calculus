@@ -1,14 +1,14 @@
 {}
 
 P0(int *x, int *y){
-*x = 1;
+Write(x, 1, Relaxed, Linux, None);
 	Write(y, 1, Release, Linux, None);
 }
 
 P1(int *x, int *y){
 
-	Read(y, None, Acquire, Linux, r0);
-	r1 = *x;
+	Read(y, None, Acquire, Linux, r0_T1);
+	Read(x, None, Relaxed, Linux, r1_T1);
 }
 
-exists (r0=1 /\ r1=0)
+exists (r0_T1=1 /\ r1_T1=0)

@@ -8,7 +8,7 @@ Write(x, 1, Relaxed, Linux, None);
 P1(int *x, int *y){
 
 	Write(y, 2, Relaxed, Linux, None);
-	Read(x, None, Relaxed, Linux, r0);
+	Read(x, None, Relaxed, Linux, r0_T1);
 }
 
-exists (y=2 /\ r0=0)
+exists (y=2 /\ r0_T1=0)

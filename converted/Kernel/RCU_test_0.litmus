@@ -2,17 +2,17 @@
 
 P0(int *x, int *z, int **y){
 
-	rcu_read_lock();
-	r0 = rcu_dereference(*y);
-	Read(r0, None, Relaxed, Linux, r1);
-	rcu_read_unlock();
+	Fence(None, None, RCU_LOCK, Linux, None);
+	Read(y, None, Relaxed, Linux, r0_T0);
+	Read(r0_T0, None, Relaxed, Linux, r1_T0);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 
 P1(int *x, int *z, int **y){
-rcu_assign_pointer(*y, z);
+Write(y, z, Release, Linux, None);
 
 	Write(x, 0, Relaxed, Linux, None);
-	synchronize_rcu();
+	Fence(None, None, SYNC_RCU, Linux, None);
 }
 
-exists (r0=x /\ r1=0)
+exists (r0_T0=x /\ r1_T0=0)

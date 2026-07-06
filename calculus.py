@@ -924,15 +924,185 @@ def process_init_vals(line):
     initIdIterator = IterativeIdentifier(thread_id=100)
     
     for init in inits:
-        loc, val = init.split(" = ")
+        if "=" not in init:
+            raise ValueError(f"Cannot parse initialization: {init}")
+
+        loc, val = init.split("=", 1)
+
+        val = val.strip()
+        try:
+            parsed_value = int(val)
+        except ValueError:
+            parsed_value = val
         
-        initializations.append(Event(initIdIterator.next_id(), loc.strip(), Operation.WRITE, MemoryOrder.INITIAL, Language.C, int(val), None))
+        initializations.append(Event(initIdIterator.next_id(), loc.strip(), Operation.WRITE, MemoryOrder.INITIAL, Language.C, parsed_value, None))
     
     return initializations
+
+def split_control_flow_line(line):
+    stripped = line.strip()
+
+    if re.fullmatch(r"}\s*else\s*{", stripped):
+        return ["}", "else {"]
+
+    return [stripped]
+
+def tokenize_thread_lines(thread_lines):
+    tokens = []
+
+    for line in thread_lines:
+        tokens.extend(token for token in split_control_flow_line(line) if token)
+
+    return tokens
+
+def is_if_statement(line):
+    return re.match(r"^if\b", line) is not None
+
+def is_else_statement(line):
+    return re.match(r"^else\b", line) is not None
+
+def line_opens_block(line):
+    return line.rstrip().endswith("{")
+
+def has_wrapping_parentheses(text):
+    if not (text.startswith("(") and text.endswith(")")):
+        return False
+
+    depth = 0
+    for idx, char in enumerate(text):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+
+        if depth == 0 and idx != len(text) - 1:
+            return False
+
+    return depth == 0
+
+def strip_wrapping_parentheses(text):
+    text = text.strip()
+
+    while has_wrapping_parentheses(text):
+        text = text[1:-1].strip()
+
+    return text
+
+def extract_if_condition(line):
+    remainder = line[len("if"):].strip()
+
+    if remainder.endswith("{"):
+        remainder = remainder[:-1].strip()
+
+    return strip_wrapping_parentheses(remainder)
+
+def resolve_condition_operand(token, read_values):
+    token = strip_wrapping_parentheses(token.strip())
+
+    if token in read_values:
+        return read_values[token]
+
+    if re.fullmatch(r"-?\d+", token):
+        return int(token)
+
+    return None
+
+def evaluate_condition(condition, read_values):
+    condition = strip_wrapping_parentheses(condition)
+
+    comparison = re.match(r"^(.*?)\s*(==|!=)\s*(.*?)$", condition)
+    if comparison:
+        left = resolve_condition_operand(comparison.group(1), read_values)
+        right = resolve_condition_operand(comparison.group(3), read_values)
+
+        if left is None or right is None:
+            return None
+
+        if comparison.group(2) == "==":
+            return left == right
+
+        return left != right
+
+    value = resolve_condition_operand(condition, read_values)
+    if value is None:
+        return None
+
+    return bool(value)
+
+def parse_control_flow_statement(tokens, index, read_values):
+    line = tokens[index]
+
+    if is_if_statement(line):
+        return parse_if_statement(tokens, index, read_values)
+
+    return [line], index + 1
+
+def parse_if_statement(tokens, index, read_values):
+    line = tokens[index]
+    condition = extract_if_condition(line)
+    index += 1
+
+    if line_opens_block(line):
+        then_branch, index = parse_control_flow_block(tokens, index, read_values, stop_on_close=True)
+    else:
+        then_branch, index = parse_control_flow_statement(tokens, index, read_values)
+
+    else_branch = []
+    if index < len(tokens) and is_else_statement(tokens[index]):
+        else_line = tokens[index]
+        index += 1
+
+        if line_opens_block(else_line):
+            else_branch, index = parse_control_flow_block(tokens, index, read_values, stop_on_close=True)
+        else:
+            else_branch, index = parse_control_flow_statement(tokens, index, read_values)
+
+    condition_result = evaluate_condition(condition, read_values)
+    if condition_result is False:
+        return else_branch, index
+
+    # When a branch cannot be decided from the final read-values clause, keep the
+    # translated body so we preserve the prior event structure as closely as possible.
+    return then_branch, index
+
+def parse_control_flow_block(tokens, index, read_values, stop_on_close=False):
+    events = []
+
+    while index < len(tokens):
+        line = tokens[index]
+
+        if line == "}":
+            if stop_on_close:
+                return events, index + 1
+
+            index += 1
+            continue
+
+        if is_else_statement(line):
+            return events, index
+
+        statement_events, index = parse_control_flow_statement(tokens, index, read_values)
+        events.extend(statement_events)
+
+    return events, index
+
+def resolve_thread_control_flow(thread_lines, read_values):
+    tokens = tokenize_thread_lines(thread_lines)
+    resolved, _ = parse_control_flow_block(tokens, 0, read_values)
+    return resolved
+
+def resolve_control_flow(parsed_threads, constraints):
+    read_values = constraints[0] if constraints else {}
+
+    return [
+        resolve_thread_control_flow(thread, read_values)
+        for thread in parsed_threads
+    ]
     
 def parse_file(filename):
     threads = []
     current_thread = None
+    current_thread_depth = 0
     initializations = []
     constraints = []
 
@@ -946,16 +1116,28 @@ def parse_file(filename):
             # Start of a new thread
             if line.startswith("P") and line.endswith("{"):
                 current_thread = []
+                current_thread_depth = 1
 
             # End of a thread
+            elif line == "}" and current_thread is not None and current_thread_depth == 1:
+                threads.append(current_thread)
+                current_thread = None
+                current_thread_depth = 0
+
+            # Inside a thread: collect statements and keep nested control-flow braces.
+            elif current_thread is not None and line:
+                current_thread.append(line)
+                current_thread_depth += line.count("{") - line.count("}")
+
+                if current_thread_depth == 0:
+                    threads.append(current_thread)
+                    current_thread = None
+                    current_thread_depth = 0
+
             elif line == "}":
                 if current_thread is not None:
                     threads.append(current_thread)
                     current_thread = None
-
-            # Inside a thread: collect statements
-            elif current_thread is not None and line:
-                current_thread.append(line)
                 
             elif (line.startswith("(") and line.endswith(")")) or line.startswith("exists"):
                 constraints = parse_final_constraint(line)
@@ -983,7 +1165,14 @@ def parse_final_constraint(line):
         for clause in and_clauses:
             if '=' in clause:
                 reg, val = clause.split("=")
-                condition_set[reg.strip()] = int(val.strip())
+                val = val.strip()
+
+                try:
+                    parsed_value = int(val)
+                except ValueError:
+                    parsed_value = val
+
+                condition_set[reg.strip()] = parsed_value
                 
         if condition_set:
             final_clauses.append(condition_set)
@@ -1381,6 +1570,7 @@ args = parser.parse_args()
 input_filename = args.input
 
 parsed, initialization_events, constraints = parse_file(input_filename)
+parsed = resolve_control_flow(parsed, constraints)
 # print(parsed)
 # print(initialization_events)
 # print(constraints)

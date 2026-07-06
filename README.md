@@ -4,7 +4,7 @@ This branch keeps the artifact-facing translation and evaluation path only.
 
 Workflow:
 
-1. Start from a Linux `.litmus` file or a C `.c` litmus test.
+1. Start from a Linux `.litmus` file or a C `.litmus` litmus test.
 2. Translate it into the repository's calculus litmus format.
 3. Run `calculus.py` to obtain `Allowed` or `Forbidden`.
 
@@ -12,35 +12,22 @@ Use the single entry point:
 
 ```bash
 python3 scripts/run_artifact_pipeline.py path/to/test.litmus
-python3 scripts/run_artifact_pipeline.py path/to/test.c
 ```
 
 Useful options:
 
 ```bash
-python3 scripts/run_artifact_pipeline.py path/to/test.c --keep-translated /tmp/test.litmus
-python3 scripts/run_artifact_pipeline.py converted/c/SB.litmus --kind converted
+python3 scripts/run_artifact_pipeline.py path/to/test.litmus --keep-translated /tmp/test.translated.litmus
+python3 scripts/run_artifact_pipeline.py converted/Kernel/MP+polocks.litmus --kind converted
 ```
 
 Kept example inputs:
 
 - Linux litmus examples under `litmus/Kernel/`
-- C litmus examples under `litmus/c/`, including the restored C11 litmus suite
+- C litmus examples under `litmus/c/`
 - Paul McKenney RCU source litmus files under `litmus/paulmckrcu/`
 - Example translated Linux litmus files under `converted/Kernel/`
 - Paul McKenney RCU translated litmus files under `converted/paulmckrcu/`
-- Example translated C litmus files under `converted/c/`
-
-Notes on the Linux corpus:
-
-- `litmus/Kernel/` also includes several Linux litmus tests with `RCU_...` names.
-- `litmus/paulmckrcu/` is the imported source subset that matches `converted/paulmckrcu/` one-for-one by filename.
-
-Kept scripts:
-
-- `scripts/run_artifact_pipeline.py` for the full evaluator workflow
-- `scripts/linux_to_calculus.py` for Linux litmus translation
-- `scripts/c_to_calculus.py` for C litmus translation
 
 Current C limitation:
 

@@ -1,0 +1,15 @@
+{ [x] = 0; [y] = 0; [zero] = 0; }
+
+P0(){
+Write(x, 1, Release, C, None);
+Read(y, None, Relaxed, C, t0_T0);
+}
+
+P1(){
+Read(x, None, Acquire, C, r1_T1);
+if (r1_T1) {
+Write(y, 1, Relaxed, C, None);
+}
+}
+
+exists(x=1 /\ y=1)

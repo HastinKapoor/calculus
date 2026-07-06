@@ -1,0 +1,13 @@
+{ [x] = 0; [y] = 0; }
+
+P0(){
+Write(x, 1, SEQ_CST, C, None);
+Read(y, None, SEQ_CST, C, r1_T0);
+}
+
+P1(){
+Write(y, 1, SEQ_CST, C, None);
+Read(x, None, SEQ_CST, C, r2_T1);
+}
+
+exists (r1_T0=0 /\ r2_T1=0)

@@ -21,7 +21,7 @@ P3(intptr_t *x3, intptr_t *u0){
 
 	Read(x3, None, Relaxed, Linux, r1_T3);
 	if (r1_T3 == 1) {
-		smp_rmb();
+		Fence(None, None, RMB, Linux, None);
 		Read(u0, None, Relaxed, Linux, r2);
 }
 }

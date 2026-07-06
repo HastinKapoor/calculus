@@ -1,0 +1,13 @@
+{ [x] = 0; [y] = 0; [zero] = 0; }
+
+P0(){
+Write(y, 1, Relaxed, C, None);
+Write(x, 1, Release, C, None);
+}
+
+P1(){
+Read(y, None, Acquire, C, t2_T1);
+Read(x, None, Acquire, C, r1_T1);
+}
+
+exists (r1_T1=1)

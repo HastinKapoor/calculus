@@ -20,14 +20,30 @@ def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, text=True, capture_output=True)
 
 
+def prompt_for_language() -> str:
+    prompt = (
+        "Input language? Enter 'linux' for Linux litmus tests or "
+        "'c' for RC11/C litmus tests: "
+    )
+
+    while True:
+        response = input(prompt).strip().lower()
+        if response in {"linux", "c"}:
+            return response
+        print("Please enter either 'linux' or 'c'.", file=sys.stderr)
+
+
 def infer_kind(path: Path, requested: str) -> str:
     if requested != "auto":
         return requested
-    if path.suffix == ".c":
-        return "c"
+
     if path.suffix == ".litmus":
-        return "linux"
-    raise SystemExit(f"Could not infer input kind from {path}. Use --kind.")
+        return prompt_for_language()
+
+    raise SystemExit(
+        f"Expected a .litmus input file, got {path.name}. "
+        "Use a .litmus test file and specify --kind converted for already translated inputs."
+    )
 
 
 def translate_input(input_path: Path, kind: str, translated_path: Path) -> None:
@@ -56,9 +72,12 @@ def evaluate(translated_path: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Translate a Linux .litmus or RC11/C .c litmus test, then run calculus.py."
+        description="Translate a Linux or RC11/C .litmus test, then run calculus.py."
     )
-    parser.add_argument("input", help="Input Linux .litmus, RC11/C .c, or already converted .litmus file")
+    parser.add_argument(
+        "input",
+        help="Input .litmus file. When --kind is omitted, the script will ask whether it is Linux or RC11/C.",
+    )
     parser.add_argument(
         "--kind",
         choices=["auto", "linux", "c", "converted"],

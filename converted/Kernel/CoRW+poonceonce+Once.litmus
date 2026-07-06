@@ -2,7 +2,7 @@
 
 P0(int *x){
 
-	Read(x, None, Relaxed, Linux, r0);
+	Read(x, None, Relaxed, Linux, r0_T0);
 	Write(x, 1, Relaxed, Linux, None);
 }
 
@@ -10,4 +10,4 @@ P1(int *x){
 Write(x, 2, Relaxed, Linux, None);
 }
 
-exists (x=2 /\ r0=2)
+exists (x=2 /\ r0_T0=2)

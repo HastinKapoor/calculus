@@ -1,0 +1,28 @@
+{ x3=y3; }
+
+P0(intptr_t *u0, intptr_t *x1){
+Write(u0, 3, Relaxed, Linux, None);
+	Write(x1, 1, Release, Linux, None);
+}
+
+P1(intptr_t *x1, intptr_t *x2){
+
+	Read(x1, None, Relaxed, Linux, r1_T1);
+	if (r1_T1 == 1) {
+		Write(x2, 1, Release, Linux, None);
+}
+}
+
+P2(intptr_t *x2, intptr_t *x3, intptr_t *u0){
+
+	Read(x2, None, Relaxed, Linux, r1_T2);
+	Write(x3, u0, Release, Linux, None);
+}
+
+P3(intptr_t *x3){
+Read(x3, None, Relaxed, Linux, r1_T3);
+	Read(r1_T3, None, Relaxed, Linux, r2);
+}
+
+exists
+(r2=0 /\ r1_T1=1 /\ r1_T2=1 /\ r1_T3=u0)

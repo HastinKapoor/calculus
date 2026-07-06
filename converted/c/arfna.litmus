@@ -1,0 +1,25 @@
+{ [a] = 0; [b] = 0; [x] = 0; [y] = 0; }
+
+P0(){
+Read(x, None, Relaxed, C, r0_T0);
+if (r0_T0) {
+Read(a, None, Relaxed, C, t_T0);
+Write(b, 1, Relaxed, C, None);
+if (t_T0) {
+Write(y, 1, Relaxed, C, None);
+}
+}
+}
+
+P1(){
+Read(y, None, Relaxed, C, r1_T1);
+if (r1_T1) {
+Read(b, None, Relaxed, C, tmp_if_0_T1);
+if (tmp_if_0_T1) {
+Write(a, 1, Relaxed, C, None);
+Write(x, 1, Relaxed, C, None);
+}
+}
+}
+
+exists (x=1 /\ y=1)

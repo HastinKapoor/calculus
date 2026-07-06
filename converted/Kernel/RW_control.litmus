@@ -10,7 +10,7 @@ P0(int *x, int *y){
 P1(int *x, int *y){
 
 	Read(y, None, Relaxed, Linux, r0_T1);
-	if(r0_T1 == 1){
+	if (r0_T1 == 1){
 		Write(x, 1, Relaxed, Linux, None);
 }
 }

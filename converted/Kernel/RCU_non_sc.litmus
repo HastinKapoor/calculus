@@ -2,23 +2,23 @@
 
 P0(int *x, int *y){
 
-	rcu_read_lock();
-	Read(x, None, Relaxed, Linux, r0);
-	rcu_read_lock();
+	Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x, None, Relaxed, Linux, r0_T0);
+	Fence(None, None, RCU_LOCK, Linux, None);
 
-	rcu_read_unlock();
-	Read(y, None, Relaxed, Linux, r1);
-	rcu_read_unlock();
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+	Read(y, None, Relaxed, Linux, r1_T0);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 
 P1(int *x, int *y){
-rcu_read_lock();
+Fence(None, None, RCU_LOCK, Linux, None);
 	Write(x, 1, Relaxed, Linux, None);
-	rcu_read_lock();
+	Fence(None, None, RCU_LOCK, Linux, None);
 
-	rcu_read_lock();
+	Fence(None, None, RCU_LOCK, Linux, None);
 	Write(y, 1, Relaxed, Linux, None);
-	rcu_read_lock();
+	Fence(None, None, RCU_LOCK, Linux, None);
 }
 
-exists (r0=0 /\ r1=1)
+exists (r0_T0=0 /\ r1_T0=1)

@@ -30,7 +30,7 @@ P4(intptr_t *x4, intptr_t *u0){
 
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if (r1_T4 == 1) {
-		smp_rmb();
+		Fence(None, None, RMB, Linux, None);
 		Read(u0, None, Relaxed, Linux, r2);
 }
 }

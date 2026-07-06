@@ -1,14 +1,16 @@
 {}
 
 P0(int *x, int *y){
-	Write(y, 1, Release, Linux_T0, None_T0);
-	synchronize_rcu();
+Read(x, None, Relaxed, Linux, r0_T0);
+	Write(y, 1, Release, Linux, None);
+	Fence(None, None, SYNC_RCU, Linux, None);
 }
 
 P1(int *x, int *y){
-rcu_read_lock();
-	Write(x, 1, Relaxed_T1, Linux_T1, None_T1);
-	rcu_read_unlock();
+Fence(None, None, RCU_LOCK, Linux, None);
+	Read(y, None, Relaxed, Linux, r0_T1);
+	Write(x, 1, Relaxed, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 
 exists (r0_T0=1 /\ r0_T1=1)
