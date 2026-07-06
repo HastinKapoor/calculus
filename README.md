@@ -26,7 +26,13 @@ Kept example inputs:
 
 - Linux litmus examples under `litmus/Kernel/` and `litmus/RCU/`
 - C litmus examples under `litmus/c/`
+- Example translated Linux litmus files under `converted/Kernel/` and `converted/RCU/`
 - Example translated C litmus files under `converted/c/`
+
+Notes on the Linux corpus:
+
+- `litmus/RCU/` contains the dedicated C-style RCU litmus tests.
+- `litmus/Kernel/` also includes several Linux litmus tests with `RCU_...` names.
 
 Kept scripts:
 
