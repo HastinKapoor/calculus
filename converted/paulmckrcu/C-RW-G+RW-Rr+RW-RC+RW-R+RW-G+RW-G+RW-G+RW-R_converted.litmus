@@ -1,0 +1,58 @@
+{}
+
+P0(intptr_t *x0, intptr_t *x1){
+Read(x0, None, Relaxed, Linux, r1_T0);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x1, 1, Relaxed, Linux, None);
+}
+
+P1(intptr_t *x1, intptr_t *x2){
+Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x1, None, Relaxed, Linux, r1_T1);
+	Write(x2, 1, Release, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+P2(intptr_t *x2, intptr_t *x3){
+Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x2, None, Relaxed, Linux, r1_T2);
+	if ((r1_T2 != r4)) {
+		Write(x3, 1, Relaxed, Linux, None);
+}
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+P3(intptr_t *x3, intptr_t *x4){
+Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x3, None, Relaxed, Linux, r1_T3);
+	Write(x4, 1, Relaxed, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+P4(intptr_t *x4, intptr_t *x5){
+Read(x4, None, Relaxed, Linux, r1_T4);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x5, 1, Relaxed, Linux, None);
+}
+
+P5(intptr_t *x5, intptr_t *x6){
+Read(x5, None, Relaxed, Linux, r1_T5);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x6, 1, Relaxed, Linux, None);
+}
+
+P6(intptr_t *x6, intptr_t *x7){
+Read(x6, None, Relaxed, Linux, r1_T6);
+	Fence(None, None, SYNC_RCU, Linux, None);
+	Write(x7, 1, Relaxed, Linux, None);
+}
+
+P7(intptr_t *x7, intptr_t *x0){
+Fence(None, None, RCU_LOCK, Linux, None);
+	Read(x7, None, Relaxed, Linux, r1_T7);
+	Write(x0, 1, Relaxed, Linux, None);
+	Fence(None, None, RCU_UNLOCK, Linux, None);
+}
+
+exists
+(r1_T0=1 /\ r1_T1=1 /\ r1_T2=1 /\ r1_T3=1 /\ r1_T4=1 /\ r1_T5=1 /\ r1_T6=1 /\ r1_T7=1)

@@ -1,0 +1,22 @@
+{}
+
+P0(intptr_t *x0, intptr_t *x1){
+Read(x0, None, Relaxed, Linux, r1_T0);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(x1, 1, Relaxed, Linux, None);
+}
+
+P1(intptr_t *x1, intptr_t *x2){
+Read(x1, None, Relaxed, Linux, r1_T1);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(x2, 1, Relaxed, Linux, None);
+}
+
+P2(intptr_t *x2, intptr_t *x0){
+Read(x2, None, Relaxed, Linux, r1_T2);
+	Fence(None, None, SEQ_CST, Linux, None);
+	Write(x0, 1, Relaxed, Linux, None);
+}
+
+exists
+(r1_T0=1 /\ r1_T1=1 /\ r1_T2=1)

@@ -27,6 +27,7 @@ Kept example inputs:
 - Linux litmus examples under `litmus/Kernel/` and `litmus/RCU/`
 - C litmus examples under `litmus/c/`
 - Example translated Linux litmus files under `converted/Kernel/` and `converted/RCU/`
+- Paul McKenney RCU translated litmus files under `converted/paulmckrcu/`
 - Example translated C litmus files under `converted/c/`
 
 Notes on the Linux corpus:
