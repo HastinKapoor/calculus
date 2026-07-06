@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
-CALCULUS = REPO_ROOT / "calculus_test.py"
+CALCULUS = REPO_ROOT / "calculus.py"
 LINUX_TRANSLATOR = ROOT / "linux_to_calculus.py"
 C_TRANSLATOR = ROOT / "c_to_calculus.py"
 
@@ -56,7 +56,7 @@ def evaluate(translated_path: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Translate a Linux .litmus or RC11/C .c litmus test, then run calculus_test.py."
+        description="Translate a Linux .litmus or RC11/C .c litmus test, then run calculus.py."
     )
     parser.add_argument("input", help="Input Linux .litmus, RC11/C .c, or already converted .litmus file")
     parser.add_argument(

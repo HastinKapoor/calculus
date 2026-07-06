@@ -6,7 +6,7 @@ Workflow:
 
 1. Start from a Linux `.litmus` file or a C `.c` litmus test.
 2. Translate it into the repository's calculus litmus format.
-3. Run `calculus_test.py` to obtain `Allowed` or `Forbidden`.
+3. Run `calculus.py` to obtain `Allowed` or `Forbidden`.
 
 Use the single entry point:
 
@@ -25,7 +25,7 @@ python3 scripts/run_artifact_pipeline.py converted/c/SB.litmus --kind converted
 Kept example inputs:
 
 - Linux litmus examples under `litmus/Kernel/`
-- C litmus examples under `litmus/c/`
+- C litmus examples under `litmus/c/`, including the restored C11 litmus suite
 - Example translated Linux litmus files under `converted/Kernel/`
 - Paul McKenney RCU translated litmus files under `converted/paulmckrcu/`
 - Example translated C litmus files under `converted/c/`
