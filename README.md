@@ -31,4 +31,5 @@ Kept example inputs:
 
 Current C limitation:
 
-- Atomic RMW/CAS operations such as `atomic_fetch_add_explicit(...)` are rejected with a clear error instead of producing malformed translated output.
+- Atomic RMW/CAS operations such as `atomic_fetch_add_explicit(...)
+- Address arithmetic

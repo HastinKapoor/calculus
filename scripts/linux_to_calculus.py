@@ -531,6 +531,35 @@ def _fold_guard_temporaries(body: str, aliases) -> str:
 
     return '\n'.join(output)
 
+
+EVENT_LOCATION_RE = re.compile(
+    r'^(?P<indent>\s*)(?P<op>Read|Write)\('
+    r'(?P<loc>[A-Za-z_]\w*)'
+    r'(?P<rest>,.*)$'
+)
+
+
+def _mark_indirect_register_locations(body: str, local_names) -> str:
+    local_set = {name for name in local_names if not is_none_token(name)}
+    updated = []
+
+    for line in body.splitlines():
+        match = EVENT_LOCATION_RE.match(line)
+        if not match:
+            updated.append(line)
+            continue
+
+        location = match.group('loc')
+        if location not in local_set:
+            updated.append(line)
+            continue
+
+        updated.append(
+            f"{match.group('indent')}{match.group('op')}(*{location}{match.group('rest')}"
+        )
+
+    return '\n'.join(updated)
+
 def process_locals_and_rename(text: str) -> str:
     """
     Removes local variable declarations inside each process and renames locals
@@ -566,6 +595,7 @@ def process_locals_and_rename(text: str) -> str:
             name for name in names + rendered_regs
             if not is_none_token(name)
         ]
+        new_body = _mark_indirect_register_locations(new_body, locals_by_tid[b['tid']])
         aliases_by_tid[b['tid']] = resolved_aliases
         new_bodies[b['tid']] = new_body
 

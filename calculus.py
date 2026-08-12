@@ -36,7 +36,12 @@ class Event:
 
 class Relation:
     def __init__(self, *args):
-        self.elements = list(args)
+        self.elements = []
+        for arg in args:
+            if isinstance(arg, Relation):
+                self.elements.extend(arg.elements)
+            else:
+                self.elements.append(arg)
 
     def First(self):
         return self.elements[0]
@@ -107,12 +112,7 @@ class Relation:
         return True
     
     def __hash__(self):
-        total = 0
-        
-        for r in self.elements:
-            total += hash(r)
-        
-        return total
+        return hash(tuple(self.elements))
     
     def __repr__(self):
         return f"Relation({', '.join(map(str, self.elements))})"
@@ -152,6 +152,24 @@ def InInt(threads, rel):
 def AddUniqueRelation(result, relation):
     if relation not in result:
         result.append(relation)
+
+
+def CloseTransitiveCompositions(relations):
+    result = relations.copy()
+    changed = True
+
+    while changed:
+        changed = False
+        snapshot = result.copy()
+        for left in snapshot:
+            for right in snapshot:
+                if left.Composes(right):
+                    composed = Relation(left, right)
+                    if composed not in result:
+                        result.append(composed)
+                        changed = True
+
+    return result
 
 def RelationToEndpoints(rel):
     return Relation(rel.Initial(), rel.Terminal())
@@ -472,6 +490,7 @@ def ToProp(threads, rf, fr, co):
         for pr in po_rel:
             if r.Composes(pr):
                 cumul_fences.append(Relation(r, pr))
+    cumul_fences = CloseTransitiveCompositions(cumul_fences)
     
     result += eco + cumul_fences + synct
 
@@ -1200,6 +1219,28 @@ def apply_read_values(threads, read_values):
             if event.type == Operation.READ and reg_key is not None and reg_key in read_values[0]:
                 event.value = read_values[0][reg_key]
 
+
+def is_indirect_location(location):
+    return isinstance(location, str) and location.startswith("*")
+
+
+def resolve_indirect_locations(threads, read_values):
+    if not read_values:
+        return
+
+    value_map = read_values[0]
+    changed = True
+    while changed:
+        changed = False
+        for thread in threads:
+            for event in thread:
+                if not is_indirect_location(event.location):
+                    continue
+                target = event.location[1:]
+                if target in value_map:
+                    event.location = str(value_map[target])
+                    changed = True
+
 def rf_candidates(processes, inits):
     """
     Returns:
@@ -1230,6 +1271,8 @@ def rf_candidates(processes, inits):
     # pprint(writes)
 
     for r in reads:
+        if is_indirect_location(r.location):
+            continue
         for w in writes:
             # print(r, w)
             if str(w.location) != str(r.location):
@@ -1304,6 +1347,8 @@ def extract_location_constraints(constraints, inits, processes):
     for process in processes:
         for event in process:
             if event.location is not None:
+                if is_indirect_location(event.location):
+                    continue
                 known_locations.add(canonicalize_location(event.location))
 
     location_constraints = []
@@ -1477,6 +1522,8 @@ def extract_all_locations(converted):
     for thread in converted:
         for event in thread:
             if event.type == Operation.READ or event.type == Operation.WRITE:
+                if is_indirect_location(event.location):
+                    continue
                 mem_locations.add(event.location)
     
     return list(mem_locations)
@@ -1586,9 +1633,9 @@ initialization_events = initialize_all_locations(initialization_events, mem_loca
 
 # print(initialization_events)
 # print(global_registers)
-output_processed_litmus(initialization_events, converted, constraints)
-
 apply_read_values(converted, constraints)
+resolve_indirect_locations(converted, constraints)
+output_processed_litmus(initialization_events, converted, constraints)
 
 rf = enumerate_rf_relations(converted, rf_candidates(converted, initialization_events)) # get final line from file?
 # print("rf", rf)
