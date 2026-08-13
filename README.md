@@ -29,7 +29,8 @@ Kept example inputs:
 - Example translated Linux litmus files under `converted/Kernel/`
 - Paul McKenney RCU translated litmus files under `converted/paulmckrcu/`
 
-Current C limitation:
+Current limitation:
 
 - Atomic RMW/CAS operations such as `atomic_fetch_add_explicit(...)
 - Address arithmetic
+- Datarace detection
