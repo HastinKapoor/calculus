@@ -39,9 +39,9 @@ pipeline used in the paper.  The artifact accepts Linux litmus tests and
 RC11/C litmus tests written as \texttt{.litmus} files, translates them into a
 common calculus litmus representation, and evaluates the translated test with
 the executable memory-model checker in \texttt{calculus.py}.  The repository
-also includes curated source corpora and regenerated translated corpora for the
+also includes curated source corpora and translated corpora for the
 Linux kernel tests, the Paul E. McKenney RCU tests, and the supported subset
-of the RC11/C tests.  Running the workflow allows the reviewer to reproduce the
+of the RC11/C tests sourced from Dartagnan.  Running the workflow allows the reviewer to reproduce the
 artifact's main outcome for an input test: whether the target execution is
 \texttt{Allowed} or \texttt{Forbidden}.
 
@@ -57,10 +57,10 @@ unify artifact meta information in Digital Libraries.}
   \item {\bf Program: } Python 3 scripts, command-line workflow
   \item {\bf Compilation: } none
   \item {\bf Transformations: } Linux litmus to calculus litmus, RC11/C litmus to calculus litmus
-  \item {\bf Binary: } none
-  \item {\bf Model: } operational memory-model checker implemented in \texttt{calculus.py}
+  \item {\bf Binary: } none included, source-only Python artifact
+  \item {\bf Model: } none
   \item {\bf Data set: } Linux kernel litmus tests, Paul E. McKenney RCU litmus tests, RC11/C litmus tests
-  \item {\bf Run-time environment: } Python 3, local filesystem, command line
+  \item {\bf Run-time environment: } Linux/Unix-like command line, Python 3, local filesystem; no root access required
   \item {\bf Hardware: } standard x86-64 workstation or laptop
   \item {\bf Run-time state: } single-process command-line execution
   \item {\bf Execution: } local
@@ -71,8 +71,8 @@ unify artifact meta information in Digital Libraries.}
   \item {\bf How much time is needed to prepare workflow (approximately)?: } 5--10 minutes
   \item {\bf How much time is needed to complete experiments (approximately)?: } seconds for single tests; minutes for corpus checks
   \item {\bf Publicly available?: } yes, in the artifact branch of the repository
-  \item {\bf Code licenses (if publicly available)?: } not specified in the repository
-  \item {\bf Data licenses (if publicly available)?: } inherited from the included source corpora; not separately restated here
+  \item {\bf Code licenses (if publicly available)?: } ?
+  \item {\bf Data licenses (if publicly available)?: } ?
   \item {\bf Workflow automation framework used?: } none
   \item {\bf Archived (provide DOI)?: } not yet archived
 \end{itemize}
@@ -103,8 +103,8 @@ CPU-based workstation or laptop.  GPU accelerators are not needed.
 
 The artifact requires Python 3.  During preparation it was run with
 \texttt{Python 3.14.6}.  No external workflow framework is required.
-The repository uses only the Python standard library plus the packages already
-used by \texttt{calculus.py}.
+The repository uses only the Python standard library and \texttt{networkx},
+which is imported by \texttt{calculus.py}. No root priveleges are needed.
 
 \subsubsection{Data sets}
 
@@ -112,7 +112,7 @@ The repository includes the following litmus-test corpora:
 
 \begin{itemize}
   \item \texttt{litmus/Kernel/}: Linux kernel litmus tests.
-  \item \texttt{litmus/paulmckrcu/}: merged Paul E. McKenney RCU source corpus.
+  \item \texttt{litmus/paulmckrcu/}: Paul E. McKenney RCU source corpus.
   \item \texttt{litmus/c/}: RC11/C litmus tests written as \texttt{.litmus} files.
 \end{itemize}
 
@@ -142,10 +142,10 @@ The artifact can then be run directly.  For example:
 
 \begin{verbatim}
 python3 scripts/run_artifact_pipeline.py \
-  litmus/Kernel/MP+polocks.litmus --kind linux
+  litmus/Kernel/MP+pooncerelease+poacquireonce.litmus --kind linux
 
 python3 scripts/run_artifact_pipeline.py \
-  litmus/c/a1+Racq+rel.litmus --kind c
+  litmus/c/lb.litmus --kind c
 \end{verbatim}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -155,10 +155,10 @@ The standard workflow is:
 
 \begin{enumerate}
   \item Choose a source litmus test from \texttt{litmus/Kernel/},
-        \texttt{litmus/paulmckrcu/}, or \texttt{litmus/c/}.
-  \item Run \texttt{scripts/run_artifact_pipeline.py} on the test.
+        \texttt{litmus/paulmckrcu/}, or \texttt{litmus/c/}. \\
+  \item Run \texttt{scripts/run\_artifact\_pipeline.py} on the test. \\
   \item If desired, save the translated calculus litmus file with
-        \texttt{--keep-translated}.
+        \texttt{--keep-translated}. \\
   \item Inspect the final output line, which reports
         \texttt{Allowed} or \texttt{Forbidden}.
 \end{enumerate}
@@ -167,14 +167,14 @@ Representative commands:
 
 \begin{verbatim}
 python3 scripts/run_artifact_pipeline.py \
-  litmus/Kernel/MP+unlocklockonceonce+fencermbonceonce.litmus --kind linux
+  litmus/Kernel/MP+pooncerelease+poacquireonce.litmus --kind linux
 
 python3 scripts/run_artifact_pipeline.py \
-  litmus/paulmckrcu/C-LB-Lrw+R-A+R-A+R-OC.litmus --kind linux
+  litmus/paulmckrcu/C-WW-G+WW-R.litmus --kind linux
 
 python3 scripts/run_artifact_pipeline.py \
-  litmus/c/arfna.litmus --kind c \
-  --keep-translated /tmp/arfna.translated.litmus
+  litmus/c/lb.litmus --kind c \
+  --keep-translated /tmp/lb.translated.litmus
 \end{verbatim}
 
 The artifact also supports evaluating already translated files directly:
@@ -202,12 +202,12 @@ or
 Examples that should run successfully in the current artifact:
 
 \begin{itemize}
-  \item \texttt{litmus/Kernel/MP+unlocklockonceonce+fencermbonceonce.litmus}
-  \item \texttt{litmus/paulmckrcu/C-LB-Lrw+R-A+R-A+R-OC.litmus}
-  \item \texttt{litmus/c/arfna.litmus}
+  \item \texttt{litmus/Kernel/MP+pooncerelease+poacquireonce.litmus}
+  \item \texttt{litmus/paulmckrcu/C-WW-G+WW-R.litmus}
+  \item \texttt{litmus/c/lb.litmus}
 \end{itemize}
 
-At the time this appendix was prepared, the refreshed translated corpora
+At the time this appendix was prepared, the condensed translated corpora
 contained:
 
 \begin{itemize}
@@ -216,10 +216,7 @@ contained:
   \item 106 translated RC11/C tests.
 \end{itemize}
 
-The remaining unsupported RC11/C tests fail clearly during translation rather
-than silently producing malformed output.  The unsupported cases are currently
-limited to atomic CAS/RMW patterns and arithmetic-over-read expressions such as
-\texttt{linearisation.litmus} and \texttt{linearisation2.litmus}.
+The unsupported cases are currently limited to atomic CAS/RMW patterns, read / pointer arithmetic (e.g. \texttt{r = *p + 1} or \texttt{t = atomic\_load\_explicit(x + 1, memory\_order\_acquire)}), and tests forbidden due to dataraces.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Experiment customization}
