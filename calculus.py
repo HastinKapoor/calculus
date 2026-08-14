@@ -1473,7 +1473,8 @@ def constraints_to_strings(constraints):
     if len(or_clauses) == 1:
         return f"exists ({or_clauses[0]})"
     else:
-        return f"exists ({r' \/ '.join(or_clauses)})"
+        separator = r" \/ "
+        return f"exists ({separator.join(or_clauses)})"
 
 def inits_to_string(initializations):
     """Convert initialization events to string format like { [x] = 0; [y] = 0; }"""
