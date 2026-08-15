@@ -13,14 +13,16 @@ import os
 class Event:
     # Identifier distinguishes two identical operations in different threads or thread positions
     # Forces values to be ints
-    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register : Register):
+    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register : Register, guards=None, raw_location=None):
         self.identifier = identifier
         self.location = location
+        self.raw_location = location if raw_location is None else raw_location
         self.type = type
         self.strength = strength
         self.language = language
         self.value = value
         self.register = register
+        self.guards = [] if guards is None else list(guards)
     
     def __eq__(self, other):
         if not isinstance(self, Event) or not isinstance(other, Event):
@@ -33,6 +35,24 @@ class Event:
     
     def __repr__(self):
         return f"Event({self.identifier}, {self.location}, {self.type}, {self.strength}, {self.language}, {self.value}, {self.register})"
+
+
+class GuardCondition:
+    def __init__(self, condition: str, expected: bool = True):
+        self.condition = condition
+        self.expected = expected
+
+    def __repr__(self):
+        return f"GuardCondition({self.condition!r}, expected={self.expected})"
+
+
+class GuardedLine:
+    def __init__(self, line: str, guards=None):
+        self.line = line
+        self.guards = [] if guards is None else list(guards)
+
+    def __repr__(self):
+        return f"GuardedLine({self.line!r}, guards={self.guards!r})"
 
 class Relation:
     def __init__(self, *args):
@@ -153,6 +173,27 @@ def AddUniqueRelation(result, relation):
     if relation not in result:
         result.append(relation)
 
+def FlattenRelationElements(rel):
+    flattened = []
+
+    for element in rel.elements:
+        if isinstance(element, Relation):
+            flattened.extend(FlattenRelationElements(element))
+        else:
+            flattened.append(element)
+
+    return flattened
+
+def ComposeFlattenedRelation(left, right):
+    left_elements = FlattenRelationElements(left)
+    right_elements = FlattenRelationElements(right)
+    max_overlap = min(len(left_elements), len(right_elements))
+
+    for overlap in range(max_overlap, 0, -1):
+        if left_elements[-overlap:] == right_elements[:overlap]:
+            return Relation(*(left_elements + right_elements[overlap:]))
+
+    return None
 
 def CloseTransitiveCompositions(relations):
     result = relations.copy()
@@ -163,8 +204,8 @@ def CloseTransitiveCompositions(relations):
         snapshot = result.copy()
         for left in snapshot:
             for right in snapshot:
-                if left.Composes(right):
-                    composed = Relation(left, right)
+                composed = ComposeFlattenedRelation(left, right)
+                if composed is not None:
                     if composed not in result:
                         result.append(composed)
                         changed = True
@@ -277,11 +318,27 @@ def IsRCULock(event):
 def IsRCUUnlock(event):
     return event.type == Operation.FENCE and event.strength == MemoryOrder.RCU_UNLOCK
 
+def IsLockRead(event):
+    return event.type == Operation.READ and event.strength == MemoryOrder.LOCK_READ
+
+def IsLockWrite(event):
+    return event.type == Operation.WRITE and event.strength == MemoryOrder.LOCK_WRITE
+
+def IsUnlock(event):
+    return event.type == Operation.WRITE and event.strength == MemoryOrder.UNLOCK
+
 def IsSyncRCU(event):
     return event.type == Operation.FENCE and event.strength == MemoryOrder.SYNC_RCU
 
 def IsRCUFence(event):
     return IsRCULock(event) or IsRCUUnlock(event) or IsSyncRCU(event)
+
+
+def GuardMentionsRegister(condition, register):
+    if register is None:
+        return False
+
+    return re.search(r"\b" + re.escape(register.id) + r"\b", condition) is not None
 
 # Cycle in communication + po-loc
 def PerLocSC(threads, rf, fr, co):
@@ -307,16 +364,18 @@ def PerLocSC(threads, rf, fr, co):
     return not nx.is_directed_acyclic_graph(G)
 
 def NoThinAir(threads, rf):
-    po = []
+    sb = []
 
     for thread in threads:
-        for i in range(len(thread)):
-            for j in range(i + 1, len(thread)):
-                po.append(Relation(thread[i], thread[j]))
+        for i in range(len(thread) - 1):
+            left = thread[i]
+            right = thread[i + 1]
+            if left.language == Language.C and right.language == Language.C:
+                sb.append(Relation(left, right))
 
     rel = [
         r
-        for r in po + rf
+        for r in sb + rf
         if r.First().language == Language.C and r.Last().language == Language.C
     ]
     edges = []
@@ -326,6 +385,49 @@ def NoThinAir(threads, rf):
 
     G = nx.DiGraph(edges)
     return not nx.is_directed_acyclic_graph(G)
+
+def ToRMWPairs(threads):
+    result = []
+
+    for thread in threads:
+        for i in range(len(thread) - 1):
+            left = thread[i]
+            right = thread[i + 1]
+
+            if (
+                IsLockRead(left)
+                and IsLockWrite(right)
+                and left.location is not None
+                and left.location == right.location
+            ):
+                AddUniqueRelation(result, Relation(left, right))
+            elif left.type == Operation.RMW_R and right.type == Operation.RMW_W:
+                AddUniqueRelation(result, Relation(left, right))
+
+    return result
+
+def Atomicity(threads, fr, co):
+    rmw = ToRMWPairs(threads)
+
+    fre = [
+        rel for rel in fr
+        if rel.First().identifier.getThreadId() != rel.Last().identifier.getThreadId()
+    ]
+    coe = [
+        rel for rel in co
+        if rel.First().identifier.getThreadId() != rel.Last().identifier.getThreadId()
+    ]
+
+    fre_coe = []
+    for fr_rel in fre:
+        for co_rel in coe:
+            if fr_rel.SingleComposes(co_rel):
+                AddUniqueRelation(
+                    fre_coe,
+                    Relation(fr_rel.Initial(), co_rel.Terminal()),
+                )
+
+    return any(rmw_rel in fre_coe for rmw_rel in rmw)
 
 def ToPoRel(threads):
     result = []
@@ -424,12 +526,111 @@ def ToRMB(threads):
                                 
     return result
 
+
+def ToAddrDep(threads):
+    result = []
+
+    for thread in threads:
+        for i in range(len(thread)):
+            src = thread[i]
+            if src.language != Language.LINUX or src.type != Operation.READ or src.register is None:
+                continue
+
+            for j in range(i + 1, len(thread)):
+                dst = thread[j]
+                if dst.language != Language.LINUX:
+                    continue
+
+                if (
+                    is_indirect_location(dst.raw_location)
+                    and dst.raw_location[1:] == src.register.id
+                ):
+                    AddUniqueRelation(result, Relation(src, dst))
+
+    return result
+
+
+def ToCtrlDep(threads):
+    result = []
+
+    for thread in threads:
+        for i in range(len(thread)):
+            src = thread[i]
+            if src.language != Language.LINUX or src.type != Operation.READ or src.register is None:
+                continue
+
+            for j in range(i + 1, len(thread)):
+                dst = thread[j]
+                if dst.language != Language.LINUX or dst.type != Operation.WRITE:
+                    continue
+
+                if any(GuardMentionsRegister(guard.condition, src.register) for guard in dst.guards):
+                    AddUniqueRelation(result, Relation(src, dst))
+
+    return result
+
+def ToPoUnlockLockPo(threads, rf=None, internal_only=False):
+    result = []
+    rf = [] if rf is None else rf
+
+    for unlock_thread in threads:
+        for unlock_idx, unlock_event in enumerate(unlock_thread):
+            if not IsUnlock(unlock_event):
+                continue
+
+            for lock_thread in threads:
+                if internal_only and lock_thread is not unlock_thread:
+                    continue
+
+                for lock_idx, lock_event in enumerate(lock_thread):
+                    if not IsLockRead(lock_event):
+                        continue
+
+                    same_thread_handoff = lock_thread is unlock_thread and unlock_idx < lock_idx
+                    rf_handoff = any(
+                        rel.Initial() == unlock_event and rel.Terminal() == lock_event
+                        for rel in rf
+                    )
+
+                    if internal_only:
+                        if not same_thread_handoff:
+                            continue
+                    elif not (same_thread_handoff or rf_handoff):
+                        continue
+
+                    for start_idx in range(unlock_idx):
+                        start_event = unlock_thread[start_idx]
+                        if start_event.type == Operation.FENCE:
+                            continue
+
+                        for end_idx in range(lock_idx + 1, len(lock_thread)):
+                            end_event = lock_thread[end_idx]
+                            if end_event.type == Operation.FENCE:
+                                continue
+
+                            AddUniqueRelation(
+                                result,
+                                Relation(start_event, unlock_event, lock_event, end_event),
+                            )
+
+    return result
+
 # Incomplete. There exist more PPOs than will be computed here, but these are "sufficient" for small litmus tests
-# po-rel, acq-po, strong-fence, WMB, RMB
+# po-rel, acq-po, strong-fence, WMB, RMB, Linux addr/ctrl deps,
+# po-unlock-lock-po & int
 def ToPPO(threads):
     result = []
     
-    result += ToPoRel(threads) + ToAcqPo(threads) + ToStrongFence(threads) + ToWMB(threads) + ToRMB(threads)
+    result += (
+        ToPoRel(threads)
+        + ToAcqPo(threads)
+        + ToStrongFence(threads)
+        + ToWMB(threads)
+        + ToRMB(threads)
+        + ToAddrDep(threads)
+        + ToCtrlDep(threads)
+        + ToPoUnlockLockPo(threads, internal_only=True)
+    )
     
     return result
 
@@ -483,9 +684,11 @@ def ToProp(threads, rf, fr, co):
             if r.Composes(s):
                 eco.append(Relation(r, s))
     
-    # Here we would compute other cumul-fences as needed
+    # Here we add the cumulative fences needed for release/acquire,
+    # WMB propagation, and lock handoff propagation.
     po_rel = ToPoRel(threads)
-    cumul_fences = po_rel.copy()
+    po_unlock_lock_po = ToPoUnlockLockPo(threads, rf=rf, internal_only=False)
+    cumul_fences = po_rel.copy() + ToWMB(threads) + po_unlock_lock_po
     for r in synct:
         for pr in po_rel:
             if r.Composes(pr):
@@ -869,14 +1072,21 @@ def convert_to_events(parsed_threads):
     for id, thread in enumerate(parsed_threads):
         thread_events = []
         threadIdIterator = IterativeIdentifier(id)
-        for line in thread:
-            event = parse_event(line, threadIdIterator.next_id())
+        for entry in thread:
+            if isinstance(entry, GuardedLine):
+                line = entry.line
+                guards = entry.guards
+            else:
+                line = entry
+                guards = []
+
+            event = parse_event(line, threadIdIterator.next_id(), guards=guards)
             thread_events.append(event)
         events.append(thread_events)
 
     return events
 
-def parse_event(line, identifier):
+def parse_event(line, identifier, guards=None):
     def normalize_arg(arg):
         if arg == "None":
             return None
@@ -928,7 +1138,17 @@ def parse_event(line, identifier):
         if register_name is not None:
             register = global_registers.newRegister(identifier.getThreadId(), register_name)
 
-    return Event(identifier, location, event_type, strength, language, value, register)
+    return Event(
+        identifier,
+        location,
+        event_type,
+        strength,
+        language,
+        value,
+        register,
+        guards=guards,
+        raw_location=location,
+    )
 
 def process_init_vals(line):
     # get rid of the braces
@@ -1054,7 +1274,7 @@ def parse_control_flow_statement(tokens, index, read_values):
     if is_if_statement(line):
         return parse_if_statement(tokens, index, read_values)
 
-    return [line], index + 1
+    return [GuardedLine(line)], index + 1
 
 def parse_if_statement(tokens, index, read_values):
     line = tokens[index]
@@ -1076,13 +1296,19 @@ def parse_if_statement(tokens, index, read_values):
         else:
             else_branch, index = parse_control_flow_statement(tokens, index, read_values)
 
-    condition_result = evaluate_condition(condition, read_values)
-    if condition_result is False:
-        return else_branch, index
+    guard = GuardCondition(condition, expected=True)
+    negated_guard = GuardCondition(condition, expected=False)
 
-    # When a branch cannot be decided from the final read-values clause, keep the
-    # translated body so we preserve the prior event structure as closely as possible.
-    return then_branch, index
+    guarded_then = [
+        GuardedLine(stmt.line, stmt.guards + [guard])
+        for stmt in then_branch
+    ]
+    guarded_else = [
+        GuardedLine(stmt.line, stmt.guards + [negated_guard])
+        for stmt in else_branch
+    ]
+
+    return guarded_then + guarded_else, index
 
 def parse_control_flow_block(tokens, index, read_values, stop_on_close=False):
     events = []
@@ -1111,10 +1337,8 @@ def resolve_thread_control_flow(thread_lines, read_values):
     return resolved
 
 def resolve_control_flow(parsed_threads, constraints):
-    read_values = constraints[0] if constraints else {}
-
     return [
-        resolve_thread_control_flow(thread, read_values)
+        resolve_thread_control_flow(thread, {})
         for thread in parsed_threads
     ]
     
@@ -1241,6 +1465,98 @@ def resolve_indirect_locations(threads, read_values):
                     event.location = str(value_map[target])
                     changed = True
 
+
+def build_register_value_map(threads):
+    register_values = {}
+
+    for thread in threads:
+        for event in thread:
+            if event.register is not None and event.value is not None:
+                register_values[event.register.id] = event.value
+
+    return register_values
+
+
+def resolve_guard_operand(token, register_values):
+    token = strip_wrapping_parentheses(token.strip())
+
+    if token in register_values:
+        value = register_values[token]
+        if isinstance(value, str) and re.fullmatch(r"-?\d+", value):
+            return int(value)
+        return value
+
+    if re.fullmatch(r"-?\d+", token):
+        return int(token)
+
+    if token.startswith("*"):
+        return None
+
+    return token
+
+
+def evaluate_guard_condition(condition, register_values):
+    condition = strip_wrapping_parentheses(condition)
+
+    comparison = re.match(r"^(.*?)\s*(==|!=)\s*(.*?)$", condition)
+    if comparison:
+        left = resolve_guard_operand(comparison.group(1), register_values)
+        right = resolve_guard_operand(comparison.group(3), register_values)
+
+        if left is None or right is None:
+            return None
+
+        if comparison.group(2) == "==":
+            return left == right
+
+        return left != right
+
+    value = resolve_guard_operand(condition, register_values)
+    if value is None:
+        return None
+
+    if isinstance(value, str) and condition not in register_values:
+        return None
+
+    return bool(value)
+
+
+def EventGuardsSatisfied(event, register_values):
+    for guard in event.guards:
+        guard_result = evaluate_guard_condition(guard.condition, register_values)
+        if guard_result is None:
+            continue
+        if guard_result != guard.expected:
+            return False
+
+    return True
+
+
+def FilterActiveThreads(threads):
+    register_values = build_register_value_map(threads)
+    active_threads = []
+    active_events = set()
+
+    for thread in threads:
+        active_thread = []
+        for event in thread:
+            if EventGuardsSatisfied(event, register_values):
+                active_thread.append(event)
+                active_events.add(event)
+        active_threads.append(active_thread)
+
+    return active_threads, active_events
+
+
+def FilterRelationsToActiveEvents(relations, active_events):
+    return [
+        rel for rel in relations
+        if rel.Last() in active_events and (
+            rel.First() in active_events
+            or rel.First().strength == MemoryOrder.INITIAL
+        )
+    ]
+
 def rf_candidates(processes, inits):
     """
     Returns:
@@ -1313,17 +1629,25 @@ def enumerate_rf_relations(processes, rf_candidates):
         # Map original read → chosen write
         choice_map = dict(zip(reads, selection))
 
-        # Build rf relations + propagate values
+        # Build rf relations for this read-from selection.
         for process in processes:
             for e in process:
                 if e in choice_map:
                     w = choice_map[e]
-                    e.value = w.value
                     rf.append(Relation(w, e))
-        
+
         results.append(rf)
     
     return results
+
+
+def ApplyRFValues(threads, rf):
+    rf_map = {rel.Last(): rel.First().value for rel in rf}
+
+    for thread in threads:
+        for event in thread:
+            if event.type == Operation.READ and event in rf_map:
+                event.value = rf_map[event]
 
 def writes_by_location(processes):
     loc_writes = defaultdict(list)
@@ -1640,21 +1964,31 @@ output_processed_litmus(initialization_events, converted, constraints)
 
 rf = enumerate_rf_relations(converted, rf_candidates(converted, initialization_events)) # get final line from file?
 # print("rf", rf)
-co = enumerate_co_relations(converted, initialization_events, constraints)
-# print("co", co)
 fr = []
 
 result = "Forbidden"
 for rf_i in rf:
-    for co_j in co:
-        fr = generate_fr_relations(rf_i, co_j)
+    ApplyRFValues(converted, rf_i)
+    active_threads, active_events = FilterActiveThreads(converted)
+    active_rf = FilterRelationsToActiveEvents(rf_i, active_events)
+    active_co_relations = enumerate_co_relations(active_threads, initialization_events, constraints)
+
+    for co_j in active_co_relations:
+        fr = generate_fr_relations(active_rf, co_j)
+        # Reject executions with a communication/po-loc cycle before building
+        # the more expensive derived relations.
+        if PerLocSC(active_threads, active_rf, fr, co_j):
+            continue
+        if Atomicity(active_threads, fr, co_j):
+            continue
+
         # print("fr", fr)
-        test = Execution(converted, rf_i, fr, co_j)
+        test = Execution(active_threads, active_rf, fr, co_j)
         # print("perloc", PerLocSC(converted, rf_i, fr, co_j))
         # print("hb", HappensBefore(test))
         # print("pb", PropagatesBefore(test))
-        # print("nta", NoThinAir(converted, rf_i))
-        if(not NoThinAir(converted, rf_i) and not PerLocSC(converted, rf_i, fr, co_j) and not HappensBefore(test) and not PropagatesBefore(test) and not RCU(test)):
+        # print("nta", NoThinAir(active_threads, active_rf))
+        if(not NoThinAir(active_threads, active_rf) and not HappensBefore(test) and not PropagatesBefore(test) and not RCU(test)):
            result = "Allowed"
 print(f"{input_filename}: {result}")
 # test = Execution(converted, rf, fr, co) #[Relation(Event(1, "x", "Write", "Release", "C", 1, None), Event(2, "x", "Read", "Acquire", "C", 1, "r0")), Relation(Event(3, "y", "Write", "Relaxed", "C", 1, None), Event(0, "y", "Read", "Relaxed", "C", 1, "r1"))], [], [])
