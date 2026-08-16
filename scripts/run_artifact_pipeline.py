@@ -187,16 +187,20 @@ def run_herd_linux(source_litmus: Path) -> str:
     if result.returncode != 0 or result.stderr.strip():
         raise ComparisonError(
             f"herd7 failed for {source_litmus}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-        )
+    )
     return parse_herd_result(result.stdout)
+
+
+def compare_litmus(source_litmus: Path, kind: str) -> tuple[bool, str, str]:
+    herd_result = run_herd_c(source_litmus) if kind == "c" else run_herd_linux(source_litmus)
+    calculus_result = run_calculus(source_litmus, kind)
+    return herd_result == calculus_result, herd_result, calculus_result
 
 
 def compare_file(path: Path) -> tuple[bool, str, str]:
     source_litmus = to_source_litmus(path)
     kind = infer_source_kind(source_litmus)
-    herd_result = run_herd_c(source_litmus) if kind == "c" else run_herd_linux(source_litmus)
-    calculus_result = run_calculus(source_litmus, kind)
-    return herd_result == calculus_result, herd_result, calculus_result
+    return compare_litmus(source_litmus, kind)
 
 
 def gather_all_tests() -> list[Path]:
@@ -343,7 +347,11 @@ def run_interchange_suite() -> int:
 
 
 def format_status(path: Path, matches: bool) -> str:
-    label = path.resolve().relative_to(REPO_ROOT.resolve())
+    resolved = path.resolve()
+    try:
+        label = resolved.relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        label = resolved
     return f"{label}: {'MATCH' if matches else 'MISMATCH'}"
 
 
@@ -354,6 +362,11 @@ def main() -> int:
     parser.add_argument("input", nargs="?", help="Single litmus file under litmus/ or converted/")
     parser.add_argument("--all", action="store_true", help="Run all litmus tests under c, Kernel, and paulmckrcu")
     parser.add_argument(
+        "--kind",
+        choices=["c", "linux"],
+        help="Required with a single input file; identifies whether the test should use the C or Linux model",
+    )
+    parser.add_argument(
         "--suite",
         choices=["c", "linux", "interchange"],
         help="Run a specific suite: C, Linux, or the generated interchangeability suite",
@@ -363,6 +376,10 @@ def main() -> int:
     selected_modes = int(bool(args.input)) + int(args.all) + int(bool(args.suite))
     if selected_modes != 1:
         parser.error("Pass exactly one of a single input file, --all, or --suite.")
+    if args.input and not args.kind:
+        parser.error("Single-input mode requires --kind {c,linux}.")
+    if args.kind and not args.input:
+        parser.error("--kind is only valid with a single input file.")
 
     if args.suite == "interchange":
         try:
@@ -373,24 +390,34 @@ def main() -> int:
 
     if args.suite:
         paths = gather_suite_tests(args.suite)
+        single_input = None
     else:
-        paths = gather_all_tests() if args.all else [Path(args.input).resolve()]
+        if args.all:
+            paths = gather_all_tests()
+            single_input = None
+        else:
+            paths = []
+            single_input = Path(args.input).resolve()
     failures: list[str] = []
 
-    for path in paths:
+    iter_paths = paths if single_input is None else [single_input]
+    for path in iter_paths:
         try:
-            matches, _, _ = compare_file(path)
+            if single_input is None:
+                matches, _, _ = compare_file(path)
+            else:
+                matches, _, _ = compare_litmus(path, args.kind)
         except ComparisonError as error:
             print(format_status(path, False), flush=True)
             print(error, file=sys.stderr, flush=True)
-            failures.append(path.resolve().relative_to(REPO_ROOT.resolve()).as_posix())
+            failures.append(format_status(path, False).split(": ", 1)[0])
             continue
 
         print(format_status(path, matches), flush=True)
         if not matches:
-            failures.append(path.resolve().relative_to(REPO_ROOT.resolve()).as_posix())
+            failures.append(format_status(path, False).split(": ", 1)[0])
 
-    print_summary(len(paths), failures)
+    print_summary(len(iter_paths), failures)
     return 1 if failures else 0
 
 
