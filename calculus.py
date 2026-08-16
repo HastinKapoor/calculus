@@ -13,7 +13,7 @@ import os
 class Event:
     # Identifier distinguishes two identical operations in different threads or thread positions
     # Forces values to be ints
-    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register : Register, guards=None, raw_location=None):
+    def __init__(self, identifier: Identifier, location, type: Operation, strength: MemoryOrder, language: Language, value: int | None, register : Register, guards=None, raw_location=None, raw_value=None):
         self.identifier = identifier
         self.location = location
         self.raw_location = location if raw_location is None else raw_location
@@ -21,6 +21,7 @@ class Event:
         self.strength = strength
         self.language = language
         self.value = value
+        self.raw_value = value if raw_value is None else raw_value
         self.register = register
         self.guards = [] if guards is None else list(guards)
     
@@ -340,6 +341,50 @@ def GuardMentionsRegister(condition, register):
 
     return re.search(r"\b" + re.escape(register.id) + r"\b", condition) is not None
 
+
+def raw_value_mentions_register(raw_value, register):
+    if register is None or raw_value is None or not isinstance(raw_value, str):
+        return False
+
+    return re.search(r"\b" + re.escape(register.id) + r"\b", raw_value) is not None
+
+
+def build_carried_dependency_state(thread):
+    carried_sources = {}
+    register_sources = {}
+    latest_write_by_location = {}
+
+    for event in thread:
+        sources = set()
+
+        if event.type == Operation.READ and event.register is not None:
+            if event.language == Language.LINUX:
+                sources.add(event)
+
+            if event.location is not None and not is_indirect_location(event.location):
+                prior_write = latest_write_by_location.get(event.location)
+                if prior_write is not None:
+                    sources.update(carried_sources.get(prior_write, set()))
+
+            carried_sources[event] = sources
+            register_sources[event.register.id] = set(sources)
+            continue
+
+        if event.type == Operation.WRITE:
+            for register_id, register_carried_sources in register_sources.items():
+                if re.search(r"\b" + re.escape(register_id) + r"\b", str(event.raw_value)):
+                    sources.update(register_carried_sources)
+
+            carried_sources[event] = sources
+
+            if event.location is not None and not is_indirect_location(event.location):
+                latest_write_by_location[event.location] = event
+            continue
+
+        carried_sources[event] = sources
+
+    return carried_sources, register_sources
+
 # Cycle in communication + po-loc
 def PerLocSC(threads, rf, fr, co):
     po_loc = []
@@ -484,7 +529,11 @@ def ToAcqPo(threads):
 
 def ToStrongFence(threads):
     result = []
-    strong_fence_strengths = {MemoryOrder.SEQ_CST, MemoryOrder.SYNC_RCU}
+    strong_fence_strengths = {
+        MemoryOrder.SEQ_CST,
+        MemoryOrder.SYNC_RCU,
+        MemoryOrder.AFTER_SPINLOCK,
+    }
     for thread in threads:
         for i in range(len(thread)):
             if thread[i].type == Operation.FENCE and thread[i].strength in strong_fence_strengths:
@@ -531,6 +580,7 @@ def ToAddrDep(threads):
     result = []
 
     for thread in threads:
+        _, register_sources = build_carried_dependency_state(thread)
         for i in range(len(thread)):
             src = thread[i]
             if src.language != Language.LINUX or src.type != Operation.READ or src.register is None:
@@ -547,6 +597,58 @@ def ToAddrDep(threads):
                 ):
                     AddUniqueRelation(result, Relation(src, dst))
 
+        for j in range(len(thread)):
+            dst = thread[j]
+            if dst.language != Language.LINUX or not is_indirect_location(dst.raw_location):
+                continue
+
+            carried_reads = register_sources.get(dst.raw_location[1:], set())
+            for src in carried_reads:
+                if src.language == Language.LINUX and src.type == Operation.READ:
+                    AddUniqueRelation(result, Relation(src, dst))
+
+    return result
+
+
+def ToDataDep(threads):
+    result = []
+
+    for thread in threads:
+        carried_sources, register_sources = build_carried_dependency_state(thread)
+        for i in range(len(thread)):
+            src = thread[i]
+            if src.language != Language.LINUX or src.type != Operation.READ or src.register is None:
+                continue
+
+            for j in range(i + 1, len(thread)):
+                dst = thread[j]
+                if dst.language != Language.LINUX or dst.type != Operation.WRITE:
+                    continue
+
+                if raw_value_mentions_register(dst.raw_value, src.register):
+                    AddUniqueRelation(result, Relation(src, dst))
+
+        for j in range(len(thread)):
+            dst = thread[j]
+            if dst.language != Language.LINUX or dst.type != Operation.WRITE:
+                continue
+
+            for register_id in re.findall(r"[A-Za-z_]\\w*", str(dst.raw_value)):
+                for src in register_sources.get(register_id, set()):
+                    if src.language == Language.LINUX and src.type == Operation.READ:
+                        AddUniqueRelation(result, Relation(src, dst))
+
+                for prior_event, prior_sources in carried_sources.items():
+                    if (
+                        prior_event.identifier.getThreadId() == dst.identifier.getThreadId()
+                        and prior_event.identifier.event_id < dst.identifier.event_id
+                        and isinstance(prior_event.register, Register)
+                        and prior_event.register.id == register_id
+                    ):
+                        for src in prior_sources:
+                            if src.language == Language.LINUX and src.type == Operation.READ:
+                                AddUniqueRelation(result, Relation(src, dst))
+
     return result
 
 
@@ -554,6 +656,7 @@ def ToCtrlDep(threads):
     result = []
 
     for thread in threads:
+        _, register_sources = build_carried_dependency_state(thread)
         for i in range(len(thread)):
             src = thread[i]
             if src.language != Language.LINUX or src.type != Operation.READ or src.register is None:
@@ -566,6 +669,17 @@ def ToCtrlDep(threads):
 
                 if any(GuardMentionsRegister(guard.condition, src.register) for guard in dst.guards):
                     AddUniqueRelation(result, Relation(src, dst))
+
+        for j in range(len(thread)):
+            dst = thread[j]
+            if dst.language != Language.LINUX or dst.type != Operation.WRITE:
+                continue
+
+            for guard in dst.guards:
+                for register_id in re.findall(r"[A-Za-z_]\w*", guard.condition):
+                    for src in register_sources.get(register_id, set()):
+                        if src.language == Language.LINUX and src.type == Operation.READ:
+                            AddUniqueRelation(result, Relation(src, dst))
 
     return result
 
@@ -628,6 +742,7 @@ def ToPPO(threads):
         + ToWMB(threads)
         + ToRMB(threads)
         + ToAddrDep(threads)
+        + ToDataDep(threads)
         + ToCtrlDep(threads)
         + ToPoUnlockLockPo(threads, internal_only=True)
     )
@@ -687,8 +802,9 @@ def ToProp(threads, rf, fr, co):
     # Here we add the cumulative fences needed for release/acquire,
     # WMB propagation, and lock handoff propagation.
     po_rel = ToPoRel(threads)
+    strong_fence = ToStrongFence(threads)
     po_unlock_lock_po = ToPoUnlockLockPo(threads, rf=rf, internal_only=False)
-    cumul_fences = po_rel.copy() + ToWMB(threads) + po_unlock_lock_po
+    cumul_fences = po_rel.copy() + strong_fence + ToWMB(threads) + po_unlock_lock_po
     for r in synct:
         for pr in po_rel:
             if r.Composes(pr):
@@ -1148,9 +1264,29 @@ def parse_event(line, identifier, guards=None):
         register,
         guards=guards,
         raw_location=location,
+        raw_value=value,
     )
 
 def process_init_vals(line):
+    def normalize_init_location(text):
+        text = text.strip()
+        text = re.sub(r"^\s*(?:const\s+|volatile\s+|atomic_\w+\s+)*", "", text)
+        match = re.search(r"([A-Za-z_]\w*)\s*$", text)
+        if match:
+            return match.group(1)
+        return text
+
+    def normalize_init_value(text):
+        text = text.strip()
+
+        if re.fullmatch(r"-?\d+", text):
+            return int(text)
+
+        if text.startswith("&"):
+            return normalize_init_location(text[1:])
+
+        return text
+
     # get rid of the braces
     line = line.replace("{", "").replace("}", "").strip()
     # split into individual inits
@@ -1167,14 +1303,20 @@ def process_init_vals(line):
             raise ValueError(f"Cannot parse initialization: {init}")
 
         loc, val = init.split("=", 1)
+        parsed_loc = normalize_init_location(loc)
+        parsed_value = normalize_init_value(val)
 
-        val = val.strip()
-        try:
-            parsed_value = int(val)
-        except ValueError:
-            parsed_value = val
-        
-        initializations.append(Event(initIdIterator.next_id(), loc.strip(), Operation.WRITE, MemoryOrder.INITIAL, Language.C, parsed_value, None))
+        initializations.append(
+            Event(
+                initIdIterator.next_id(),
+                parsed_loc,
+                Operation.WRITE,
+                MemoryOrder.INITIAL,
+                Language.C,
+                parsed_value,
+                None,
+            )
+        )
     
     return initializations
 
@@ -1466,6 +1608,30 @@ def resolve_indirect_locations(threads, read_values):
                     changed = True
 
 
+def resolve_indirect_locations_from_register_values(threads):
+    value_map = build_register_value_map(threads)
+    changed = True
+
+    while changed:
+        changed = False
+        for thread in threads:
+            for event in thread:
+                if not is_indirect_location(event.raw_location):
+                    continue
+
+                target = event.raw_location[1:]
+                if target not in value_map:
+                    continue
+
+                new_location = str(value_map[target])
+                if event.location != new_location:
+                    event.location = new_location
+                    changed = True
+
+        if changed:
+            value_map = build_register_value_map(threads)
+
+
 def build_register_value_map(threads):
     register_values = {}
 
@@ -1475,6 +1641,30 @@ def build_register_value_map(threads):
                 register_values[event.register.id] = event.value
 
     return register_values
+
+
+def resolve_event_values_from_register_values(threads):
+    value_map = build_register_value_map(threads)
+    changed = True
+
+    while changed:
+        changed = False
+        for thread in threads:
+            for event in thread:
+                if event.value is None or not isinstance(event.value, str):
+                    continue
+
+                token = event.value.strip()
+                if token not in value_map:
+                    continue
+
+                new_value = value_map[token]
+                if event.value != new_value:
+                    event.value = new_value
+                    changed = True
+
+        if changed:
+            value_map = build_register_value_map(threads)
 
 
 def resolve_guard_operand(token, register_values):
@@ -1556,6 +1746,111 @@ def FilterRelationsToActiveEvents(relations, active_events):
             or rel.First().strength == MemoryOrder.INITIAL
         )
     ]
+
+
+def RelationTerminalReads(relations):
+    return {rel.Last() for rel in relations}
+
+
+def CloneThreadsAndInits(threads, inits):
+    cloned_threads = copy.deepcopy(threads)
+    cloned_inits = copy.deepcopy(inits)
+    event_map = {}
+
+    for original_thread, cloned_thread in zip(threads, cloned_threads):
+        for original_event, cloned_event in zip(original_thread, cloned_thread):
+            event_map[original_event] = cloned_event
+
+    for original_init, cloned_init in zip(inits, cloned_inits):
+        event_map[original_init] = cloned_init
+
+    return cloned_threads, cloned_inits, event_map
+
+
+def RemapRelation(rel, event_map):
+    remapped = []
+
+    for element in rel.elements:
+        if isinstance(element, Relation):
+            remapped.append(RemapRelation(element, event_map))
+        else:
+            remapped.append(event_map[element])
+
+    return Relation(*remapped)
+
+
+def RemapRelations(relations, event_map):
+    return [RemapRelation(rel, event_map) for rel in relations]
+
+
+def rf_candidates_for_unassigned_reads(processes, inits, assigned_reads):
+    loc_writes = writes_by_location(processes)
+    writes = inits.copy()
+    reads = []
+
+    for process in processes:
+        for event in process:
+            if event.type == Operation.WRITE:
+                writes.append(event)
+            elif event.type == Operation.READ and event not in assigned_reads:
+                reads.append(event)
+
+    candidates = defaultdict(list)
+
+    for read in reads:
+        if is_indirect_location(read.location):
+            continue
+
+        for write in writes:
+            if str(write.location) != str(read.location):
+                continue
+
+            if read.value is not None:
+                if str(write.value) == str(read.value):
+                    candidates[read].append(write)
+            else:
+                candidates[read].append(write)
+
+    return candidates
+
+
+def ActiveReads(threads):
+    return [
+        event
+        for thread in threads
+        for event in thread
+        if event.type == Operation.READ
+    ]
+
+
+def EnumerateResolvedRFExecutions(threads, inits, rf):
+    # Guarded control flow must be evaluated using the RF choices already made
+    # for this execution prefix; otherwise C no-thin-air cycles such as arfna
+    # can disappear before we filter to the active events.
+    ApplyRFValues(threads, rf)
+    resolve_event_values_from_register_values(threads)
+    resolve_indirect_locations_from_register_values(threads)
+    active_threads, active_events = FilterActiveThreads(threads)
+    active_rf = FilterRelationsToActiveEvents(rf, active_events)
+
+    assigned_reads = RelationTerminalReads(active_rf)
+    remaining_reads = [read for read in ActiveReads(active_threads) if read not in assigned_reads]
+
+    if not remaining_reads:
+        yield active_threads, inits, active_rf
+        return
+
+    extra_candidates = rf_candidates_for_unassigned_reads(active_threads, inits, assigned_reads)
+
+    for read in remaining_reads:
+        if read not in extra_candidates or not extra_candidates[read]:
+            return
+
+    for extra_rf in enumerate_rf_relations(active_threads, extra_candidates):
+        cloned_threads, cloned_inits, event_map = CloneThreadsAndInits(active_threads, inits)
+        combined_rf = active_rf + extra_rf
+        cloned_rf = RemapRelations(combined_rf, event_map)
+        yield from EnumerateResolvedRFExecutions(cloned_threads, cloned_inits, cloned_rf)
 
 def rf_candidates(processes, inits):
     """
@@ -1968,27 +2263,27 @@ fr = []
 
 result = "Forbidden"
 for rf_i in rf:
-    ApplyRFValues(converted, rf_i)
-    active_threads, active_events = FilterActiveThreads(converted)
-    active_rf = FilterRelationsToActiveEvents(rf_i, active_events)
-    active_co_relations = enumerate_co_relations(active_threads, initialization_events, constraints)
+    cloned_threads, cloned_inits, event_map = CloneThreadsAndInits(converted, initialization_events)
+    cloned_rf = RemapRelations(rf_i, event_map)
 
-    for co_j in active_co_relations:
-        fr = generate_fr_relations(active_rf, co_j)
-        # Reject executions with a communication/po-loc cycle before building
-        # the more expensive derived relations.
-        if PerLocSC(active_threads, active_rf, fr, co_j):
-            continue
-        if Atomicity(active_threads, fr, co_j):
-            continue
+    for active_threads, active_inits, active_rf in EnumerateResolvedRFExecutions(
+        cloned_threads,
+        cloned_inits,
+        cloned_rf,
+    ):
+        active_co_relations = enumerate_co_relations(active_threads, active_inits, constraints)
 
-        # print("fr", fr)
-        test = Execution(active_threads, active_rf, fr, co_j)
-        # print("perloc", PerLocSC(converted, rf_i, fr, co_j))
-        # print("hb", HappensBefore(test))
-        # print("pb", PropagatesBefore(test))
-        # print("nta", NoThinAir(active_threads, active_rf))
-        if(not NoThinAir(active_threads, active_rf) and not HappensBefore(test) and not PropagatesBefore(test) and not RCU(test)):
-           result = "Allowed"
+        for co_j in active_co_relations:
+            fr = generate_fr_relations(active_rf, co_j)
+            # Reject executions with a communication/po-loc cycle before building
+            # the more expensive derived relations.
+            if PerLocSC(active_threads, active_rf, fr, co_j):
+                continue
+            if Atomicity(active_threads, fr, co_j):
+                continue
+
+            test = Execution(active_threads, active_rf, fr, co_j)
+            if(not NoThinAir(active_threads, active_rf) and not HappensBefore(test) and not PropagatesBefore(test) and not RCU(test)):
+               result = "Allowed"
 print(f"{input_filename}: {result}")
 # test = Execution(converted, rf, fr, co) #[Relation(Event(1, "x", "Write", "Release", "C", 1, None), Event(2, "x", "Read", "Acquire", "C", 1, "r0")), Relation(Event(3, "y", "Write", "Relaxed", "C", 1, None), Event(0, "y", "Read", "Relaxed", "C", 1, "r1"))], [], [])

@@ -39,6 +39,9 @@ SELF_COMPARE_ASSIGN_LEFT_RE = re.compile(
 IF_GUARD_RE = re.compile(
     r'^(?P<indent>\s*)if\s*\(\s*(?P<guard>[A-Za-z_]\w*)\s*\)\s*(?P<brace>\{?)\s*$'
 )
+EVENT_CALL_RE = re.compile(
+    r'^(?P<indent>\s*)(?P<op>Read|Write|Fence)\((?P<args>.*)\);\s*$'
+)
 
 
 def is_none_token(value) -> bool:
@@ -46,26 +49,40 @@ def is_none_token(value) -> bool:
 
 def _normalize_location(loc_raw: str) -> str:
     """
-    Normalize a location argument by removing a single leading '*' (and
-    optional surrounding parentheses). Examples:
-      '*x'     -> 'x'
-      '(*x)'   -> 'x'
-      '* ( x )'-> 'x'
+    Normalize a direct location argument by unwrapping superficial
+    parentheses/casts, but preserve dereference structure for callers that
+    intentionally encode indirect locations such as '*x'.
     """
     if loc_raw is None:
         return loc_raw
     loc = loc_raw.strip()
-    # match forms like '(*x)' first
-    m = re.match(r'^\(\s*\*\s*([^)]+?)\s*\)$', loc)
-    if m:
-        return m.group(1).strip()
-    # if starts with asterisk, strip it and any immediate whitespace
-    if loc.startswith('*'):
-        loc = loc[1:].strip()
-        # if wrapped in parentheses after removing '*', unwrap once
-        if loc.startswith('(') and loc.endswith(')'):
-            loc = loc[1:-1].strip()
     return loc
+
+
+def strip_balanced_outer_parens(expr: str) -> str:
+    current = expr.strip()
+    previous = None
+
+    while current != previous:
+        previous = current
+        if not (current.startswith('(') and current.endswith(')')):
+            break
+
+        depth = 0
+        balanced = True
+        for idx, ch in enumerate(current):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth == 0 and idx != len(current) - 1:
+                    balanced = False
+                    break
+
+        if balanced and depth == 0:
+            current = current[1:-1].strip()
+
+    return current
 
 
 def split_args(args_str: str):
@@ -112,27 +129,19 @@ def normalize_location_expression(expr: str) -> str:
     previous = None
     while current != previous:
         previous = current
-        if current.startswith('(') and current.endswith(')'):
-            depth = 0
-            balanced = True
-            for idx, ch in enumerate(current):
-                if ch == '(':
-                    depth += 1
-                elif ch == ')':
-                    depth -= 1
-                    if depth == 0 and idx != len(current) - 1:
-                        balanced = False
-                        break
-            if balanced and depth == 0:
-                current = current[1:-1].strip()
-                continue
-        if current.startswith('*'):
-            current = current[1:].strip()
-            continue
+        current = strip_balanced_outer_parens(current)
         stripped_cast = strip_leading_casts(current)
         if stripped_cast != current:
             current = stripped_cast
             continue
+    current = strip_balanced_outer_parens(current)
+
+    if current.startswith('*'):
+        pointee = current[1:].strip()
+        pointee = strip_leading_casts(pointee)
+        pointee = strip_balanced_outer_parens(pointee)
+        return f"*{_normalize_location(pointee)}"
+
     return _normalize_location(current)
 
 
@@ -176,9 +185,57 @@ def extract_assigned_name(lhs: str):
     return tokens[-1]
 
 
+def make_plain_temp_register(counter: int) -> str:
+    return f"plain_tmp_{counter}"
+
+
+def convert_if_line(stripped: str, plain_temp_counter=None):
+    if_match = re.match(
+        r'^if\s*\(\s*(?P<guard>.+?)\s*\)(?P<suffix>\s*\{?\s*)$',
+        stripped,
+    )
+    if not if_match:
+        return None
+
+    guard = if_match.group('guard').strip()
+
+    comparison = re.match(r"^(?P<left>.+?)\s*(?P<op>==|!=)\s*(?P<right>.+)$", guard)
+    if comparison:
+        left = comparison.group('left').strip()
+        right = comparison.group('right').strip()
+
+        if left.startswith('*'):
+            temp_register = make_plain_temp_register(plain_temp_counter[0])
+            plain_temp_counter[0] += 1
+            return (
+                f"Read({normalize_location_expression(left)}, None, Relaxed, C, {temp_register});\n"
+                f"if ({temp_register} {comparison.group('op')} {right}){if_match.group('suffix')}"
+            )
+
+        if right.startswith('*'):
+            temp_register = make_plain_temp_register(plain_temp_counter[0])
+            plain_temp_counter[0] += 1
+            return (
+                f"Read({normalize_location_expression(right)}, None, Relaxed, C, {temp_register});\n"
+                f"if ({left} {comparison.group('op')} {temp_register}){if_match.group('suffix')}"
+            )
+
+    if guard.startswith('*'):
+        temp_register = make_plain_temp_register(plain_temp_counter[0])
+        plain_temp_counter[0] += 1
+        return (
+            f"Read({normalize_location_expression(guard)}, None, Relaxed, C, {temp_register});\n"
+            f"if ({temp_register}){if_match.group('suffix')}"
+        )
+
+    return None
+
+
 def convert_assignment_line(stripped: str):
     lhs, rhs = split_assignment(stripped.rstrip(';'))
     if lhs is None:
+        return None
+    if lhs.startswith('*'):
         return None
 
     register = extract_assigned_name(lhs)
@@ -204,12 +261,12 @@ def convert_assignment_line(stripped: str):
         return f"Read({normalize_location_expression(args[0])}, None, Relaxed, Linux, {register});"
 
     if rhs_no_cast.startswith('*'):
-        return f"Read({normalize_location_expression(rhs_no_cast)}, None, Relaxed, Linux, {register});"
+        return f"Read({normalize_location_expression(rhs_no_cast)}, None, Relaxed, C, {register});"
 
     return None
 
 
-def convert_standalone_line(stripped: str):
+def convert_standalone_line(stripped: str, plain_temp_counter=None):
     args = parse_call(stripped.rstrip(';'), 'spin_lock')
     if args and len(args) >= 1:
         location = normalize_location_expression(args[0])
@@ -260,7 +317,17 @@ def convert_standalone_line(stripped: str):
 
     lhs, rhs = split_assignment(stripped.rstrip(';'))
     if lhs is not None and lhs.startswith('*'):
-        return f"Write({normalize_location_expression(lhs)}, {normalize_value_expression(rhs)}, Relaxed, Linux, None);"
+        rhs_no_cast = strip_leading_casts(rhs)
+
+        if rhs_no_cast.startswith('*'):
+            temp_register = make_plain_temp_register(plain_temp_counter[0])
+            plain_temp_counter[0] += 1
+            return (
+                f"Read({normalize_location_expression(rhs_no_cast)}, None, Relaxed, C, {temp_register});\n"
+                f"Write({normalize_location_expression(lhs)}, {temp_register}, Relaxed, C, None);"
+            )
+
+        return f"Write({normalize_location_expression(lhs)}, {normalize_value_expression(rhs)}, Relaxed, C, None);"
 
     args = parse_call(stripped.rstrip(';'), 'READ_ONCE')
     if args and len(args) >= 1:
@@ -271,6 +338,7 @@ def convert_standalone_line(stripped: str):
 
 def convert_text(text: str) -> str:
     converted_lines = []
+    plain_temp_counter = [0]
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -279,7 +347,9 @@ def convert_text(text: str) -> str:
 
         converted = convert_assignment_line(stripped)
         if converted is None:
-            converted = convert_standalone_line(stripped)
+            converted = convert_standalone_line(stripped, plain_temp_counter)
+        if converted is None:
+            converted = convert_if_line(stripped, plain_temp_counter)
 
         if converted is None:
             converted_lines.append(line)
@@ -417,16 +487,34 @@ def _find_process_blocks(text: str):
     Find process blocks and return list of dicts:
       { 'header': header_text, 'tid': int, 'args': arg_text, 'body': body_text, 'span': (start,end) }
     """
-    pattern = re.compile(r'^(?P<header>(?P<pname>[PT])(?P<tid>\d+)\s*\((?P<args>[^)]*)\))\s*\{\s*(?P<body>.*?)\s*\}', re.M | re.S)
+    header_re = re.compile(
+        r'^(?P<header>(?P<pname>[PT])(?P<tid>\d+)\s*\((?P<args>[^)]*)\))\s*\{',
+        re.M,
+    )
     blocks = []
-    for m in pattern.finditer(text):
+    for m in header_re.finditer(text):
+        body_start = m.end()
+        depth = 1
+        idx = body_start
+
+        while idx < len(text) and depth > 0:
+            if text[idx] == '{':
+                depth += 1
+            elif text[idx] == '}':
+                depth -= 1
+            idx += 1
+
+        if depth != 0:
+            continue
+
+        body = text[body_start:idx - 1].strip()
         blocks.append({
             'header': m.group('header'),
             'pname': m.group('pname'),
             'tid': int(m.group('tid')),
             'args': m.group('args').strip(),
-            'body': m.group('body'),
-            'span': (m.start(), m.end())
+            'body': body,
+            'span': (m.start(), idx)
         })
     return blocks
 
@@ -480,7 +568,34 @@ def _replace_word(text: str, old: str, new: str):
     return re.sub(r'\b' + re.escape(old) + r'\b', new, text)
 
 
+def _normalize_local_dereferences_in_guard(guard: str, local_names) -> str:
+    updated = guard
+    for name in local_names:
+        if is_none_token(name):
+            continue
+        updated = re.sub(r'(?<!\w)\*' + re.escape(name) + r'\b', name, updated)
+    return updated
+
+
 def _replace_aliases_in_line(line: str, aliases) -> str:
+    event_match = EVENT_CALL_RE.match(line)
+    if event_match:
+        args = split_args(event_match.group('args'))
+        rewritten = []
+
+        for idx, arg in enumerate(args):
+            # Keep the destination register of Read events symbolic.
+            if event_match.group('op') == 'Read' and idx == len(args) - 1:
+                rewritten.append(arg)
+                continue
+
+            updated_arg = arg
+            for old, new in aliases.items():
+                updated_arg = _replace_word(updated_arg, old, new)
+            rewritten.append(updated_arg)
+
+        return f"{event_match.group('indent')}{event_match.group('op')}({', '.join(rewritten)});"
+
     assign_match = re.match(r'^(?P<indent>\s*)(?P<lhs>[A-Za-z_]\w*)\s*=\s*(?P<rhs>.+)$', line)
     if assign_match:
         rhs = assign_match.group('rhs')
@@ -534,9 +649,18 @@ def _fold_guard_temporaries(body: str, aliases) -> str:
 
 EVENT_LOCATION_RE = re.compile(
     r'^(?P<indent>\s*)(?P<op>Read|Write)\('
-    r'(?P<loc>[A-Za-z_]\w*)'
+    r'(?P<loc>\*?[A-Za-z_]\w*)'
     r'(?P<rest>,.*)$'
 )
+
+
+def _extract_argument_names(args: str):
+    names = []
+    for part in args.split(','):
+        tokens = re.findall(r'[A-Za-z_]\w*', part)
+        if tokens:
+            names.append(tokens[-1])
+    return names
 
 
 def _mark_indirect_register_locations(body: str, local_names) -> str:
@@ -560,6 +684,53 @@ def _mark_indirect_register_locations(body: str, local_names) -> str:
 
     return '\n'.join(updated)
 
+
+def _normalize_local_guard_dereferences(body: str, local_names) -> str:
+    updated = []
+
+    for line in body.splitlines():
+        if_match = re.match(r'^(?P<indent>\s*)if\s*\(\s*(?P<guard>.+?)\s*\)(?P<suffix>\s*\{?\s*)$', line)
+        if not if_match:
+            updated.append(line)
+            continue
+
+        normalized_guard = _normalize_local_dereferences_in_guard(
+            if_match.group('guard'),
+            local_names,
+        )
+        updated.append(
+            f"{if_match.group('indent')}if ({normalized_guard}){if_match.group('suffix')}"
+        )
+
+    return '\n'.join(updated)
+
+
+def _normalize_parameter_dereferences(body: str, parameter_names) -> str:
+    parameter_set = {name for name in parameter_names if not is_none_token(name)}
+    updated = []
+
+    for line in body.splitlines():
+        match = EVENT_LOCATION_RE.match(line)
+        if not match:
+            updated.append(line)
+            continue
+
+        location = match.group('loc')
+        if not location.startswith('*'):
+            updated.append(line)
+            continue
+
+        base = location[1:]
+        if base not in parameter_set:
+            updated.append(line)
+            continue
+
+        updated.append(
+            f"{match.group('indent')}{match.group('op')}({base}{match.group('rest')}"
+        )
+
+    return '\n'.join(updated)
+
 def process_locals_and_rename(text: str) -> str:
     """
     Removes local variable declarations inside each process and renames locals
@@ -577,6 +748,7 @@ def process_locals_and_rename(text: str) -> str:
     aliases_by_tid = {}
     for b in blocks:
         new_body, names, aliases = _remove_local_decls_and_collect(b['body'])
+        parameter_names = _extract_argument_names(b['args'])
         resolved_aliases = {
             name: _resolve_alias_value(value, aliases)
             for name, value in aliases.items()
@@ -595,7 +767,9 @@ def process_locals_and_rename(text: str) -> str:
             name for name in names + rendered_regs
             if not is_none_token(name)
         ]
+        new_body = _normalize_local_guard_dereferences(new_body, locals_by_tid[b['tid']])
         new_body = _mark_indirect_register_locations(new_body, locals_by_tid[b['tid']])
+        new_body = _normalize_parameter_dereferences(new_body, parameter_names)
         aliases_by_tid[b['tid']] = resolved_aliases
         new_bodies[b['tid']] = new_body
 
@@ -614,12 +788,20 @@ def process_locals_and_rename(text: str) -> str:
                     rename_map[tid][name] = f"{name}_T{tid}"
 
         # Apply renames inside each process body
+        parameter_names_by_tid = {
+            b['tid']: _extract_argument_names(b['args'])
+            for b in blocks
+        }
         for tid, body in new_bodies.items():
             rm = rename_map.get(tid, {})
             new_text = body
             # Replace each old->new with word boundaries
             for old, new in rm.items():
                 new_text = _replace_word(new_text, old, new)
+            new_text = _normalize_parameter_dereferences(
+                new_text,
+                parameter_names_by_tid.get(tid, []),
+            )
             new_bodies[tid] = new_text
 
         # Update exists line(s): replace occurrences of 'N:name' where N matches tid

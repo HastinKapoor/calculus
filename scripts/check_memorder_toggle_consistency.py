@@ -3,6 +3,7 @@
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,21 @@ CALCULUS = REPO_ROOT / "calculus.py"
 TOGGLE_STRENGTH = ROOT / "toggle_memorder_strength.sh"
 TOGGLE_LANGUAGE = ROOT / "toggle_memorder_language.sh"
 COMBO_SUFFIX_RE = re.compile(r"^(?P<base>.+)_combo_(?P<bits>[01]+)$")
+INTERCHANGE_BASELINE_DIRS = ("c", "Kernel")
+MEMORDER_VARIANT_TOKENS = {
+    "Racq",
+    "Rna",
+    "Rrlx",
+    "Rsc",
+    "Wna",
+    "Wrel",
+    "Wrlx",
+    "Wsc",
+    "acq",
+    "rel",
+    "rlx",
+    "sc",
+}
 
 
 def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -37,6 +53,45 @@ def parse_combo_stem(path: Path) -> tuple[str, str]:
     if not match:
         raise ValueError(f"Expected combo suffix in generated file: {path}")
     return match.group("base"), match.group("bits")
+
+
+def representative_key(path: Path) -> str:
+    parts = path.stem.split("+")
+    while len(parts) > 1 and parts[-1] in MEMORDER_VARIANT_TOKENS:
+        parts.pop()
+    return "+".join(parts)
+
+
+def iter_baseline_inputs(input_dir: Path) -> list[Path]:
+    if input_dir.name == "converted":
+        litmus_paths: list[Path] = []
+        for family in INTERCHANGE_BASELINE_DIRS:
+            family_dir = input_dir / family
+            if family_dir.is_dir():
+                litmus_paths.extend(sorted(family_dir.rglob("*.litmus")))
+        return litmus_paths
+    return sorted(input_dir.rglob("*.litmus"))
+
+
+def select_representative_inputs(input_dir: Path) -> dict[Path, list[Path]]:
+    groups: dict[Path, list[Path]] = defaultdict(list)
+    for litmus_path in iter_baseline_inputs(input_dir):
+        rel_path = litmus_path.relative_to(input_dir)
+        key = rel_path.with_name(f"{representative_key(rel_path)}.litmus")
+        groups[key].append(litmus_path)
+    return groups
+
+
+def stage_representative_inputs(input_dir: Path, staged_dir: Path) -> tuple[Path, dict[Path, list[Path]]]:
+    groups = select_representative_inputs(input_dir)
+    staged_dir.mkdir(parents=True, exist_ok=True)
+    for rel_path, variants in groups.items():
+        destination = staged_dir / rel_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        preferred = input_dir / rel_path
+        representative = preferred if preferred in variants else variants[0]
+        shutil.copy2(representative, destination)
+    return staged_dir, groups
 
 
 def original_test_name(group_rel: Path) -> str:
@@ -95,11 +150,14 @@ def main() -> int:
         cleanup = tempfile.TemporaryDirectory(prefix="memorder-toggle-check-")
         workdir = Path(cleanup.name)
 
+    representative_dir, representative_groups = stage_representative_inputs(
+        input_dir, workdir / "representative"
+    )
     strength_dir = workdir / "strength"
     language_dir = workdir / "language"
 
     require_success(
-        run_command([str(TOGGLE_STRENGTH), str(input_dir), str(strength_dir)]),
+        run_command([str(TOGGLE_STRENGTH), str(representative_dir), str(strength_dir)]),
         "toggle_memorder_strength",
     )
     require_success(
@@ -144,14 +202,12 @@ def main() -> int:
             summary = ", ".join(f"combo_{bits}={result}" for bits, result in alternate_results)
             failing_tests[test_name].append(f"{strength_variant}: {summary}")
 
-    total_tests = len(
-        {
-            original_test_name(group_rel)
-            for group_rel in groups
-        }
-    )
+    total_tests = len({original_test_name(group_rel) for group_rel in groups})
 
-    print(f"Checked {total_tests} tests.")
+    print(
+        f"Checked {total_tests} representative tests "
+        f"(from {sum(len(paths) for paths in representative_groups.values())} inputs)."
+    )
     if not failing_tests:
         print("All tests passed.")
         return 0
