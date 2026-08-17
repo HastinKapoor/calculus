@@ -12,6 +12,11 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
+try:
+    from toggle_memorder_strength import canonical_digest
+except ModuleNotFoundError:  # pragma: no cover - allows repo-root imports in tests/snippets
+    from scripts.toggle_memorder_strength import canonical_digest
+
 
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
@@ -19,6 +24,8 @@ LITMUS_ROOT = REPO_ROOT / "litmus"
 EVALUATE_PIPELINE = ROOT / "evaluate_calculus_pipeline.py"
 HERD_MODELS = REPO_ROOT / "herd7_models"
 CONVERTED_ROOT = REPO_ROOT / "converted"
+LINUX_TRANSLATOR = ROOT / "linux_to_calculus.py"
+C_TRANSLATOR = ROOT / "c_to_calculus.py"
 TOGGLE_STRENGTH = ROOT / "toggle_memorder_strength.sh"
 TOGGLE_LANGUAGE = ROOT / "toggle_memorder_language.sh"
 COMBO_SUFFIX_RE = re.compile(r"^(?P<base>.+)_combo_(?P<bits>[01]+)$")
@@ -41,7 +48,7 @@ MEMORDER_VARIANT_TOKENS = {
 C_RC11_MODEL = HERD_MODELS / "rc11.cat"
 LINUX_CFG = HERD_MODELS / "linux-kernel.cfg"
 
-SUPPORTED_DIRS = ("c", "Kernel", "paulmckrcu")
+SUPPORTED_DIRS = ("c", "Kernel")
 VALID_RESULTS = {"Allowed", "Forbidden"}
 
 
@@ -214,10 +221,9 @@ def gather_suite_tests(suite: str) -> list[Path]:
     if suite == "c":
         return sorted((LITMUS_ROOT / "c").rglob("*.litmus"))
     if suite == "linux":
-        tests: list[Path] = []
-        for family in ("Kernel", "paulmckrcu"):
-            tests.extend(sorted((LITMUS_ROOT / family).rglob("*.litmus")))
-        return tests
+        return sorted((LITMUS_ROOT / "Kernel").rglob("*.litmus"))
+    if suite == "RCU":
+        return sorted((LITMUS_ROOT / "paulmckrcu").rglob("*.litmus"))
     raise ComparisonError(f"Unsupported comparison suite: {suite}")
 
 
@@ -283,7 +289,74 @@ def stage_representative_inputs(input_dir: Path, staged_dir: Path) -> tuple[Path
     return staged_dir, groups
 
 
-def run_interchange_suite() -> int:
+def translate_source_file(source_litmus: Path, translated_path: Path, kind: str) -> None:
+    translator = C_TRANSLATOR if kind == "c" else LINUX_TRANSLATOR
+    translated_path.parent.mkdir(parents=True, exist_ok=True)
+    require_success(
+        run_command([sys.executable, str(translator), str(source_litmus), "-o", str(translated_path)]),
+        f"translation for {source_litmus}",
+    )
+
+
+def translate_source_tests(paths: list[Path], translated_root: Path) -> dict[str, list[Path]]:
+    digest_map: dict[str, list[Path]] = defaultdict(list)
+    for source_litmus in paths:
+        rel_path = source_litmus.resolve().relative_to(LITMUS_ROOT.resolve())
+        translated_path = translated_root / rel_path
+        kind = infer_source_kind(source_litmus)
+        translate_source_file(source_litmus, translated_path, kind)
+        digest_map[canonical_digest(translated_path.read_text())].append(source_litmus)
+    return digest_map
+
+
+def choose_source_for_generated_variant(
+    generated_litmus: Path, digest_map: dict[str, list[Path]]
+) -> Path:
+    digest = canonical_digest(generated_litmus.read_text())
+    candidates = digest_map.get(digest)
+    if not candidates:
+        raise ComparisonError(f"No matching source litmus found for generated variant: {generated_litmus}")
+    return sorted(candidates)[0]
+
+
+def run_generated_strength_suite(paths: list[Path]) -> int:
+    with tempfile.TemporaryDirectory(prefix="run-artifact-all-") as tmpdir:
+        tmp_root = Path(tmpdir)
+        translated_root = tmp_root / "translated"
+        strength_root = tmp_root / "strength"
+
+        digest_map = translate_source_tests(paths, translated_root)
+        require_success(
+            run_command([str(TOGGLE_STRENGTH), str(translated_root), str(strength_root)]),
+            "toggle_memorder_strength",
+        )
+
+        generated_paths = sorted(strength_root.rglob("*.litmus"))
+        failures: list[str] = []
+        for generated_litmus in generated_paths:
+            try:
+                source_litmus = choose_source_for_generated_variant(generated_litmus, digest_map)
+                kind = infer_source_kind(source_litmus)
+                herd_result = run_herd_c(source_litmus) if kind == "c" else run_herd_linux(source_litmus)
+                calculus_result = evaluate_litmus(generated_litmus)
+                matches = herd_result == calculus_result
+            except ComparisonError as error:
+                label = generated_litmus.resolve().relative_to(strength_root.resolve()).as_posix()
+                print(f"generated/{label}: MISMATCH", flush=True)
+                print(error, file=sys.stderr, flush=True)
+                failures.append(f"generated/{label}")
+                continue
+
+            label = generated_litmus.resolve().relative_to(strength_root.resolve()).as_posix()
+            print(f"generated/{label}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
+            if not matches:
+                failures.append(f"generated/{label}")
+
+        print_summary(len(generated_paths), failures)
+        return 1 if failures else 0
+
+
+def run_interchange_suite(stop_after: int | None = None) -> int:
     if not CONVERTED_ROOT.is_dir():
         raise ComparisonError(f"Converted test directory not found: {CONVERTED_ROOT}")
 
@@ -312,7 +385,10 @@ def run_interchange_suite() -> int:
             groups[group_rel].append((bits, litmus_path))
 
         failures: list[str] = []
+        processed = 0
         for group_rel, variants in sorted(groups.items()):
+            if stop_after is not None and processed >= stop_after:
+                break
             ordered_variants = sorted(variants, key=lambda item: item[0])
             baseline_bits = "0" * len(ordered_variants[0][0])
             if ordered_variants[0][0] != baseline_bits:
@@ -335,6 +411,7 @@ def run_interchange_suite() -> int:
                     f"combo_{bits}={verdict}" for bits, verdict in sorted(verdicts.items())
                 )
                 print(details, file=sys.stderr, flush=True)
+            processed += 1
 
         print(
             "Interchange representatives: "
@@ -342,7 +419,9 @@ def run_interchange_suite() -> int:
             f"{sum(len(paths) for paths in representative_groups.values())} inputs.",
             flush=True,
         )
-        print_summary(len(groups), failures)
+        if stop_after is not None and processed < len(groups):
+            print(f"Stopped early after {processed} interchange tests.", flush=True)
+        print_summary(processed, failures)
         return 1 if failures else 0
 
 
@@ -360,7 +439,11 @@ def main() -> int:
         description="Compare herd7 and calculus outcomes for the artifact litmus suites."
     )
     parser.add_argument("input", nargs="?", help="Single litmus file under litmus/ or converted/")
-    parser.add_argument("--all", action="store_true", help="Run all litmus tests under c, Kernel, and paulmckrcu")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Translate the c and Kernel suites, generate strength variants, and compare all generated tests",
+    )
     parser.add_argument(
         "--kind",
         choices=["c", "linux"],
@@ -368,8 +451,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--suite",
-        choices=["c", "linux", "interchange"],
-        help="Run a specific suite: C, Linux, or the generated interchangeability suite",
+        choices=["c", "linux", "RCU", "interchange"],
+        help="Run a specific suite: C, Linux/Kernel, RCU, or the generated interchangeability suite",
+    )
+    parser.add_argument(
+        "--stop-after",
+        type=int,
+        help="For --suite interchange, stop after this many generated interchange tests and print a partial summary",
     )
     args = parser.parse_args()
 
@@ -380,21 +468,34 @@ def main() -> int:
         parser.error("Single-input mode requires --kind {c,linux}.")
     if args.kind and not args.input:
         parser.error("--kind is only valid with a single input file.")
+    if args.stop_after is not None and args.stop_after <= 0:
+        parser.error("--stop-after must be a positive integer.")
+    if args.stop_after is not None and args.suite != "interchange":
+        parser.error("--stop-after is only valid with --suite interchange.")
 
     if args.suite == "interchange":
         try:
-            return run_interchange_suite()
+            return run_interchange_suite(args.stop_after)
         except ComparisonError as error:
             print(error, file=sys.stderr, flush=True)
             return 1
 
     if args.suite:
+        if args.suite in {"c", "linux"}:
+            try:
+                return run_generated_strength_suite(gather_suite_tests(args.suite))
+            except ComparisonError as error:
+                print(error, file=sys.stderr, flush=True)
+                return 1
         paths = gather_suite_tests(args.suite)
         single_input = None
     else:
         if args.all:
-            paths = gather_all_tests()
-            single_input = None
+            try:
+                return run_generated_strength_suite(gather_all_tests())
+            except ComparisonError as error:
+                print(error, file=sys.stderr, flush=True)
+                return 1
         else:
             paths = []
             single_input = Path(args.input).resolve()

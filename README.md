@@ -16,6 +16,7 @@ python3 scripts/run_artifact_pipeline.py path/to/test.litmus --kind c
 python3 scripts/run_artifact_pipeline.py --all
 python3 scripts/run_artifact_pipeline.py --suite linux
 python3 scripts/run_artifact_pipeline.py --suite c
+python3 scripts/run_artifact_pipeline.py --suite RCU
 python3 scripts/run_artifact_pipeline.py --suite interchange
 ```
 
