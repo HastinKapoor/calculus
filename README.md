@@ -1,7 +1,5 @@
 # Calculus Artifact Branch
 
-This branch keeps the artifact-facing translation, comparison, and evaluation path only.
-
 Comparison workflow:
 
 1. Start from a Linux `.litmus` file or a C `.litmus` litmus test.
@@ -13,8 +11,12 @@ Comparison workflow:
 Use the comparison entry point:
 
 ```bash
-python3 scripts/run_artifact_pipeline.py path/to/test.litmus
+python3 scripts/run_artifact_pipeline.py path/to/test.litmus --kind linux
+python3 scripts/run_artifact_pipeline.py path/to/test.litmus --kind c
 python3 scripts/run_artifact_pipeline.py --all
+python3 scripts/run_artifact_pipeline.py --suite linux
+python3 scripts/run_artifact_pipeline.py --suite c
+python3 scripts/run_artifact_pipeline.py --suite interchange
 ```
 
 Translation + calculus-only workflow:
@@ -36,7 +38,14 @@ python3 scripts/evaluate_calculus_pipeline.py path/to/test.litmus --keep-transla
 python3 scripts/evaluate_calculus_pipeline.py converted/Kernel/MP+polocks.litmus --kind converted
 ```
 
-Kept example inputs:
+Memorder toggle consistency:
+
+```bash
+python3 scripts/check_memorder_toggle_consistency.py litmus
+python3 scripts/check_memorder_toggle_consistency.py litmus/c
+```
+
+Example inputs:
 
 - Linux litmus examples under `litmus/Kernel/`
 - C litmus examples under `litmus/c/`
@@ -46,6 +55,5 @@ Kept example inputs:
 
 Current limitation:
 
-- Atomic RMW/CAS operations such as `atomic_fetch_add_explicit(...)
 - Address arithmetic
 - Datarace detection
