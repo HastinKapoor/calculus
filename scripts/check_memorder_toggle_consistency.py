@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
 CALCULUS = REPO_ROOT / "calculus.py"
+INTERCHANGE_CALCULUS = REPO_ROOT / "interchangeability_calculus.py"
 LINUX_TRANSLATOR = ROOT / "linux_to_calculus.py"
 C_TRANSLATOR = ROOT / "c_to_calculus.py"
 TOGGLE_STRENGTH = ROOT / "toggle_memorder_strength.sh"
@@ -111,8 +112,9 @@ def original_test_name(group_rel: Path) -> str:
     return source_rel.as_posix()
 
 
-def evaluate_litmus(path: Path) -> str:
-    result = run_command([sys.executable, str(CALCULUS), str(path)])
+def evaluate_litmus(path: Path, *, interchange: bool = False) -> str:
+    calculus_entry = INTERCHANGE_CALCULUS if interchange else CALCULUS
+    result = run_command([sys.executable, str(calculus_entry), str(path)])
     require_success(result, f"calculus evaluation for {path}")
 
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -208,13 +210,13 @@ def main() -> int:
                     f"found {ordered_variants[0][0]}"
                 )
 
-            alternate_results = []
-            for bits, litmus_path in ordered_variants[1:]:
-                alternate_results.append((bits, evaluate_litmus(litmus_path)))
+            all_results = []
+            for bits, litmus_path in ordered_variants:
+                all_results.append((bits, evaluate_litmus(litmus_path, interchange=True)))
 
-            variant_count = 1 + len(ordered_variants[1:])
+            variant_count = len(ordered_variants)
             tested_variants += variant_count
-            observed = {result for _, result in alternate_results}
+            observed = {result for _, result in all_results}
             label = generated_group_rel.as_posix()
             matches = len(observed) <= 1
             print(f"{label}: {'MATCH' if matches else 'MISMATCH'}", flush=True)

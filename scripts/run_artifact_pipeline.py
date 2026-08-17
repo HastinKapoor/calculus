@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
 LITMUS_ROOT = REPO_ROOT / "litmus"
 EVALUATE_PIPELINE = ROOT / "evaluate_calculus_pipeline.py"
+INTERCHANGE_CALCULUS = REPO_ROOT / "interchangeability_calculus.py"
 HERD_MODELS = REPO_ROOT / "herd7_models"
 CONVERTED_ROOT = REPO_ROOT / "converted"
 LINUX_TRANSLATOR = ROOT / "linux_to_calculus.py"
@@ -309,8 +310,9 @@ def require_success(result: subprocess.CompletedProcess[str], description: str) 
     raise ComparisonError(f"{description} failed with exit code {result.returncode}.")
 
 
-def evaluate_litmus(path: Path) -> str:
-    result = run_command([sys.executable, str(REPO_ROOT / "calculus.py"), str(path)])
+def evaluate_litmus(path: Path, *, interchange: bool = False) -> str:
+    calculus_entry = INTERCHANGE_CALCULUS if interchange else REPO_ROOT / "calculus.py"
+    result = run_command([sys.executable, str(calculus_entry), str(path)])
     require_success(result, f"calculus evaluation for {path}")
     return parse_calculus_result(result.stdout)
 
@@ -499,10 +501,10 @@ def run_interchange_suite(stop_after: int | None = None) -> int:
                         )
 
                     verdicts = {
-                        bits: evaluate_litmus(litmus_path)
-                        for bits, litmus_path in ordered_variants[1:]
+                        bits: evaluate_litmus(litmus_path, interchange=True)
+                        for bits, litmus_path in ordered_variants
                     }
-                    variant_count = 1 + len(ordered_variants[1:])
+                    variant_count = len(ordered_variants)
                     tested_variants += variant_count
                     observed = set(verdicts.values())
                     label_text = label.as_posix()
