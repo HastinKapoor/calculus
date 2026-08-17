@@ -212,16 +212,17 @@ def main() -> int:
             for bits, litmus_path in ordered_variants[1:]:
                 alternate_results.append((bits, evaluate_litmus(litmus_path)))
 
-            tested_variants += 1 + len(ordered_variants[1:])
+            variant_count = 1 + len(ordered_variants[1:])
+            tested_variants += variant_count
             observed = {result for _, result in alternate_results}
             label = generated_group_rel.as_posix()
             matches = len(observed) <= 1
             print(f"{label}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
             if not matches:
                 failures.append(label)
-                mismatch_count += 1
+                mismatch_count += variant_count
             else:
-                match_count += 1
+                match_count += variant_count
     print_variant_summary(tested_variants, match_count, mismatch_count)
     return 1 if failures else 0
 

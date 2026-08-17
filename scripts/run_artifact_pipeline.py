@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -45,9 +46,15 @@ LINUX_CFG = HERD_MODELS / "linux-kernel.cfg"
 
 SUPPORTED_DIRS = ("c", "Kernel")
 VALID_RESULTS = {"Allowed", "Forbidden"}
+INTERCHANGE_PROGRESS_FILE = REPO_ROOT / ".interchange_progress.json"
+INTERCHANGE_STOP_FILE = REPO_ROOT / ".interchange_stop"
 
 
 class ComparisonError(RuntimeError):
+    pass
+
+
+class InterchangeStopRequested(RuntimeError):
     pass
 
 
@@ -66,6 +73,69 @@ def print_summary(total: int, failures: list[str]) -> None:
         print("  Mismatch list:", flush=True)
         for label in failures:
             print(f"    {label}", flush=True)
+
+
+def write_interchange_progress(
+    *,
+    total_original_tests: int,
+    processed_original_tests: int,
+    tested_variants: int,
+    match_count: int,
+    mismatch_count: int,
+    failures: list[str],
+) -> None:
+    payload = {
+        "total_original_tests": total_original_tests,
+        "processed_original_tests": processed_original_tests,
+        "tested_variants": tested_variants,
+        "matches": match_count,
+        "mismatches": mismatch_count,
+        "failures": failures,
+    }
+    INTERCHANGE_PROGRESS_FILE.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def reset_interchange_run_state() -> None:
+    INTERCHANGE_PROGRESS_FILE.unlink(missing_ok=True)
+    INTERCHANGE_STOP_FILE.unlink(missing_ok=True)
+
+
+def maybe_stop_interchange() -> None:
+    if INTERCHANGE_STOP_FILE.exists():
+        raise InterchangeStopRequested(
+            f"Stop requested via {INTERCHANGE_STOP_FILE.relative_to(REPO_ROOT)}."
+        )
+
+
+def print_interchange_summary(
+    *,
+    representative_groups: dict[Path, list[Path]],
+    processed_original_tests: int,
+    tested_variants: int,
+    match_count: int,
+    mismatch_count: int,
+    stopped_early: bool,
+) -> None:
+    print(
+        "Interchange representatives: "
+        f"{len(representative_groups)} groups from "
+        f"{sum(len(paths) for paths in representative_groups.values())} inputs.",
+        flush=True,
+    )
+    if stopped_early:
+        print(
+            f"Stopped early after {processed_original_tests} original interchange tests.",
+            flush=True,
+        )
+        print(
+            f"Progress saved to {INTERCHANGE_PROGRESS_FILE.relative_to(REPO_ROOT)}.",
+            flush=True,
+        )
+        print(
+            f"Create {INTERCHANGE_STOP_FILE.relative_to(REPO_ROOT)} before the next test to stop gracefully without Ctrl+C.",
+            flush=True,
+        )
+    print_variant_summary(tested_variants, match_count, mismatch_count)
 
 
 def run_command(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -365,89 +435,112 @@ def run_interchange_suite(stop_after: int | None = None) -> int:
     if not CONVERTED_ROOT.is_dir():
         raise ComparisonError(f"Converted test directory not found: {CONVERTED_ROOT}")
 
+    reset_interchange_run_state()
     with tempfile.TemporaryDirectory(prefix="run-artifact-interchange-") as tmpdir:
         tmp_root = Path(tmpdir)
         _, representative_groups = stage_representative_inputs(
             CONVERTED_ROOT, tmp_root / "representative"
         )
         failures: list[str] = []
-        processed_groups = 0
         processed_original_tests = 0
         tested_variants = 0
         match_count = 0
         mismatch_count = 0
-        for group_rel, variants in sorted(representative_groups.items()):
-            if stop_after is not None and processed_original_tests >= stop_after:
-                break
-            representative = variants[0]
-            test_root = tmp_root / "per_test" / group_rel.with_suffix("")
-            input_dir = test_root / "input"
-            strength_dir = test_root / "strength"
-            language_dir = test_root / "language"
-            input_path = input_dir / group_rel
-            input_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(representative, input_path)
-
-            require_success(
-                run_command([str(TOGGLE_STRENGTH), str(input_dir), str(strength_dir)]),
-                f"toggle_memorder_strength for {representative}",
-            )
-            require_success(
-                run_command([str(TOGGLE_LANGUAGE), str(strength_dir), str(language_dir)]),
-                f"toggle_memorder_language for {representative}",
-            )
-
-            generated_groups: dict[Path, list[tuple[str, Path]]] = defaultdict(list)
-            for litmus_path in sorted(language_dir.rglob("*.litmus")):
-                rel_path = litmus_path.relative_to(language_dir)
-                group_base, bits = parse_combo_stem(rel_path)
-                generated_group_rel = rel_path.with_name(f"{group_base}.litmus")
-                generated_groups[generated_group_rel].append((bits, litmus_path))
-
-            if not generated_groups:
-                raise ComparisonError(f"No interchange variants generated for {representative}")
-            for label, generated_variants in sorted(generated_groups.items()):
-                ordered_variants = sorted(generated_variants, key=lambda item: item[0])
-                baseline_bits = "0" * len(ordered_variants[0][0])
-                if ordered_variants[0][0] != baseline_bits:
-                    raise ComparisonError(
-                        f"Expected baseline variant {baseline_bits} for {label}, "
-                        f"found {ordered_variants[0][0]}"
-                    )
-
-                verdicts = {
-                    bits: evaluate_litmus(litmus_path)
-                    for bits, litmus_path in ordered_variants[1:]
-                }
-                tested_variants += 1 + len(ordered_variants[1:])
-                observed = set(verdicts.values())
-                label_text = label.as_posix()
-                matches = len(observed) <= 1
-                print(f"interchange/{label_text}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
-                if not matches:
-                    failures.append(f"interchange/{label_text}")
-                    mismatch_count += 1
-                    details = ", ".join(
-                        f"combo_{bits}={verdict}" for bits, verdict in sorted(verdicts.items())
-                    )
-                    print(details, file=sys.stderr, flush=True)
-                else:
-                    match_count += 1
-                processed_groups += 1
-            processed_original_tests += 1
-
-        print(
-            "Interchange representatives: "
-            f"{len(representative_groups)} groups from "
-            f"{sum(len(paths) for paths in representative_groups.values())} inputs.",
-            flush=True,
+        write_interchange_progress(
+            total_original_tests=len(representative_groups),
+            processed_original_tests=processed_original_tests,
+            tested_variants=tested_variants,
+            match_count=match_count,
+            mismatch_count=mismatch_count,
+            failures=failures,
         )
-        if stop_after is not None and processed_original_tests < len(representative_groups):
-            print(
-                f"Stopped early after {processed_original_tests} original interchange tests.",
-                flush=True,
-            )
-        print_variant_summary(tested_variants, match_count, mismatch_count)
+
+        stopped_early = False
+        try:
+            for group_rel, variants in sorted(representative_groups.items()):
+                maybe_stop_interchange()
+                if stop_after is not None and processed_original_tests >= stop_after:
+                    stopped_early = True
+                    break
+                representative = variants[0]
+                test_root = tmp_root / "per_test" / group_rel.with_suffix("")
+                input_dir = test_root / "input"
+                strength_dir = test_root / "strength"
+                language_dir = test_root / "language"
+                input_path = input_dir / group_rel
+                input_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(representative, input_path)
+
+                require_success(
+                    run_command([str(TOGGLE_STRENGTH), str(input_dir), str(strength_dir)]),
+                    f"toggle_memorder_strength for {representative}",
+                )
+                require_success(
+                    run_command([str(TOGGLE_LANGUAGE), str(strength_dir), str(language_dir)]),
+                    f"toggle_memorder_language for {representative}",
+                )
+
+                generated_groups: dict[Path, list[tuple[str, Path]]] = defaultdict(list)
+                for litmus_path in sorted(language_dir.rglob("*.litmus")):
+                    rel_path = litmus_path.relative_to(language_dir)
+                    group_base, bits = parse_combo_stem(rel_path)
+                    generated_group_rel = rel_path.with_name(f"{group_base}.litmus")
+                    generated_groups[generated_group_rel].append((bits, litmus_path))
+
+                if not generated_groups:
+                    raise ComparisonError(f"No interchange variants generated for {representative}")
+                for label, generated_variants in sorted(generated_groups.items()):
+                    ordered_variants = sorted(generated_variants, key=lambda item: item[0])
+                    baseline_bits = "0" * len(ordered_variants[0][0])
+                    if ordered_variants[0][0] != baseline_bits:
+                        raise ComparisonError(
+                            f"Expected baseline variant {baseline_bits} for {label}, "
+                            f"found {ordered_variants[0][0]}"
+                        )
+
+                    verdicts = {
+                        bits: evaluate_litmus(litmus_path)
+                        for bits, litmus_path in ordered_variants[1:]
+                    }
+                    variant_count = 1 + len(ordered_variants[1:])
+                    tested_variants += variant_count
+                    observed = set(verdicts.values())
+                    label_text = label.as_posix()
+                    matches = len(observed) <= 1
+                    print(f"interchange/{label_text}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
+                    if not matches:
+                        failures.append(f"interchange/{label_text}")
+                        mismatch_count += variant_count
+                        details = ", ".join(
+                            f"combo_{bits}={verdict}" for bits, verdict in sorted(verdicts.items())
+                        )
+                        print(details, file=sys.stderr, flush=True)
+                    else:
+                        match_count += variant_count
+                processed_original_tests += 1
+                write_interchange_progress(
+                    total_original_tests=len(representative_groups),
+                    processed_original_tests=processed_original_tests,
+                    tested_variants=tested_variants,
+                    match_count=match_count,
+                    mismatch_count=mismatch_count,
+                    failures=failures,
+                )
+        except KeyboardInterrupt:
+            stopped_early = True
+            print("\nInterchange run interrupted by user.", file=sys.stderr, flush=True)
+        except InterchangeStopRequested as stop_request:
+            stopped_early = True
+            print(stop_request, file=sys.stderr, flush=True)
+
+        print_interchange_summary(
+            representative_groups=representative_groups,
+            processed_original_tests=processed_original_tests,
+            tested_variants=tested_variants,
+            match_count=match_count,
+            mismatch_count=mismatch_count,
+            stopped_early=stopped_early,
+        )
         return 1 if failures else 0
 
 

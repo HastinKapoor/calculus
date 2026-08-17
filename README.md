@@ -20,6 +20,8 @@ python3 scripts/run_artifact_pipeline.py --suite RCU
 python3 scripts/run_artifact_pipeline.py --suite interchange
 ```
 
+For long interchange runs, you can stop early with `Ctrl+C` and still get a partial summary. You can also create `.interchange_stop` in the repo root to stop cleanly after the current original test finishes.
+
 Translation + calculus-only workflow:
 
 1. Start from a Linux `.litmus` file or a C `.litmus` litmus test.
