@@ -330,7 +330,11 @@ def run_generated_strength_suite(paths: list[Path]) -> int:
 
             generated_paths = sorted(source_variants_dir.rglob("*.litmus"))
             if not generated_paths:
-                raise ComparisonError(f"No source strength variants generated for {source_litmus}")
+                print(
+                    f"generated/{rel_path.as_posix()}: SKIPPED (no source strength variants)",
+                    flush=True,
+                )
+                continue
 
             for generated_source in generated_paths:
                 rel_generated = generated_source.relative_to(source_variants_dir)

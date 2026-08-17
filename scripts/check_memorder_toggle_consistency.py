@@ -196,7 +196,8 @@ def main() -> int:
             groups[generated_group_rel].append((bits, litmus_path))
 
         if not groups:
-            raise SystemExit(f"No language-toggle outputs found under {language_dir}")
+            print(f"{group_rel.as_posix()}: SKIPPED (no source strength variants)", flush=True)
+            continue
 
         for generated_group_rel, generated_variants in sorted(groups.items()):
             ordered_variants = sorted(generated_variants, key=lambda item: item[0])

@@ -176,10 +176,6 @@ def main():
             }
         )
 
-    if not occurrences:
-        print("No eligible Read/Write operations found; nothing generated.")
-        return
-
     combination_count = 1 << len(occurrences)
     if len(occurrences) > 20:
         print(
@@ -187,6 +183,12 @@ def main():
         )
 
     stem = inp.stem
+    if not occurrences:
+        out_path = out_dir / f"{stem}_combo_0.litmus"
+        out_path.write_text("".join(lines))
+        print(f"Wrote {out_path}")
+        return
+
     for mask in range(combination_count):
         new_lines = list(lines)
         for bit_index, occurrence in enumerate(occurrences):

@@ -217,12 +217,14 @@ def generate_variants(input_file: Path, output_dir: Path, kind: str) -> int:
     occurrences = (
         collect_c_occurrences(lines) if kind == "c" else collect_linux_occurrences(lines)
     )
-    if not occurrences:
-        print("No eligible source operations found; nothing generated.")
-        return 0
-
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = input_file.stem
+    if not occurrences:
+        out_path = output_dir / f"{stem}_combo_0.litmus"
+        out_path.write_text("".join(lines))
+        print(f"Wrote {out_path}")
+        return 0
+
     for mask in range(1 << len(occurrences)):
         out_path = output_dir / f"{stem}_combo_{format(mask, f'0{len(occurrences)}b')}.litmus"
         out_path.write_text("".join(apply_occurrences(lines, occurrences, mask)))
