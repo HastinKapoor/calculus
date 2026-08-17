@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
 CALCULUS = REPO_ROOT / "calculus.py"
+LINUX_TRANSLATOR = ROOT / "linux_to_calculus.py"
+C_TRANSLATOR = ROOT / "c_to_calculus.py"
 TOGGLE_STRENGTH = ROOT / "toggle_memorder_strength.sh"
 TOGGLE_LANGUAGE = ROOT / "toggle_memorder_language.sh"
 COMBO_SUFFIX_RE = re.compile(r"^(?P<base>.+)_combo_(?P<bits>[01]+)$")
@@ -62,8 +64,21 @@ def representative_key(path: Path) -> str:
     return "+".join(parts)
 
 
+def infer_kind_from_path(path: Path) -> str:
+    parts = path.resolve().parts
+    if "litmus" in parts:
+        litmus_index = parts.index("litmus")
+        if litmus_index + 1 < len(parts):
+            family = parts[litmus_index + 1]
+            if family == "c":
+                return "c"
+            if family in {"Kernel", "paulmckrcu"}:
+                return "linux"
+    raise SystemExit(f"Could not infer source language from path: {path}")
+
+
 def iter_baseline_inputs(input_dir: Path) -> list[Path]:
-    if input_dir.name == "converted":
+    if input_dir.name in {"converted", "litmus"}:
         litmus_paths: list[Path] = []
         for family in INTERCHANGE_BASELINE_DIRS:
             family_dir = input_dir / family
@@ -92,6 +107,25 @@ def stage_representative_inputs(input_dir: Path, staged_dir: Path) -> tuple[Path
         representative = preferred if preferred in variants else variants[0]
         shutil.copy2(representative, destination)
     return staged_dir, groups
+
+
+def translate_representative_inputs(
+    input_dir: Path,
+    representative_groups: dict[Path, list[Path]],
+    translated_dir: Path,
+) -> Path:
+    translated_dir.mkdir(parents=True, exist_ok=True)
+    for rel_path, variants in sorted(representative_groups.items()):
+        destination = translated_dir / rel_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        preferred = input_dir / rel_path
+        representative = preferred if preferred in variants else variants[0]
+        translator = C_TRANSLATOR if infer_kind_from_path(representative) == "c" else LINUX_TRANSLATOR
+        require_success(
+            run_command([sys.executable, str(translator), str(representative), "-o", str(destination)]),
+            f"translation for {representative}",
+        )
+    return translated_dir
 
 
 def original_test_name(group_rel: Path) -> str:
@@ -123,14 +157,14 @@ def evaluate_litmus(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Expand converted litmus tests with memory-order and language toggles, "
-            "run calculus.py on the generated variants, and report tests whose "
-            "non-baseline language variants disagree."
+            "Translate source litmus tests, expand them with memory-order and "
+            "language toggles, run calculus.py on the generated variants, and "
+            "report tests whose non-baseline language variants disagree."
         )
     )
     parser.add_argument(
         "input_dir",
-        help="Directory of converted .litmus files to analyze",
+        help="Directory of source .litmus files to analyze",
     )
     parser.add_argument(
         "--keep-workdir",
@@ -153,11 +187,14 @@ def main() -> int:
     representative_dir, representative_groups = stage_representative_inputs(
         input_dir, workdir / "representative"
     )
+    translated_dir = translate_representative_inputs(
+        input_dir, representative_groups, workdir / "translated"
+    )
     strength_dir = workdir / "strength"
     language_dir = workdir / "language"
 
     require_success(
-        run_command([str(TOGGLE_STRENGTH), str(representative_dir), str(strength_dir)]),
+        run_command([str(TOGGLE_STRENGTH), str(translated_dir), str(strength_dir)]),
         "toggle_memorder_strength",
     )
     require_success(
