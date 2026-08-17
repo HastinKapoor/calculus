@@ -9,7 +9,7 @@ P0(intptr_t *u0, intptr_t *x1, intptr_t *x2){
 P1(intptr_t *x1){
 Read(x1, None, Relaxed, Linux, r1_T1);
 	Fence(None, None, SEQ_CST, Linux, None);
-	Write(r1_T1, 1, Relaxed, Linux, None);
+	Write(*r1_T1, 1, Relaxed, Linux, None);
 }
 
 P2(intptr_t *x2, intptr_t *x3, intptr_t *x4){
@@ -21,7 +21,7 @@ P2(intptr_t *x2, intptr_t *x3, intptr_t *x4){
 P3(intptr_t *x3){
 Read(x3, None, Relaxed, Linux, r1_T3);
 	Fence(None, None, SEQ_CST, Linux, None);
-	Write(r1_T3, 1, Relaxed, Linux, None);
+	Write(*r1_T3, 1, Relaxed, Linux, None);
 }
 
 P4(intptr_t *v0, intptr_t *x4){

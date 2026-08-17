@@ -31,8 +31,8 @@ P4(intptr_t *x4, intptr_t *y5){
 	Fence(None, None, RCU_LOCK, Linux, None);
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if (r1_T4 != y5) {
-		Write(r1_T4, 1, Relaxed, Linux, None);
-}
+		Write(*r1_T4, 1, Relaxed, Linux, None);
+	}
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

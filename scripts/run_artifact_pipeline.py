@@ -12,12 +12,6 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
-try:
-    from toggle_memorder_strength import canonical_digest
-except ModuleNotFoundError:  # pragma: no cover - allows repo-root imports in tests/snippets
-    from scripts.toggle_memorder_strength import canonical_digest
-
-
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
 LITMUS_ROOT = REPO_ROOT / "litmus"
@@ -28,6 +22,7 @@ LINUX_TRANSLATOR = ROOT / "linux_to_calculus.py"
 C_TRANSLATOR = ROOT / "c_to_calculus.py"
 TOGGLE_STRENGTH = ROOT / "toggle_memorder_strength.sh"
 TOGGLE_LANGUAGE = ROOT / "toggle_memorder_language.sh"
+TOGGLE_SOURCE_STRENGTH = ROOT / "toggle_memorder_source_strength.sh"
 COMBO_SUFFIX_RE = re.compile(r"^(?P<base>.+)_combo_(?P<bits>[01]+)$")
 INTERCHANGE_BASELINE_DIRS = ("c", "Kernel")
 MEMORDER_VARIANT_TOKENS = {
@@ -54,6 +49,13 @@ VALID_RESULTS = {"Allowed", "Forbidden"}
 
 class ComparisonError(RuntimeError):
     pass
+
+
+def print_variant_summary(total_variants: int, matches: int, mismatches: int) -> None:
+    print("Summary:", flush=True)
+    print(f"  Total variants tested: {total_variants}", flush=True)
+    print(f"  Matches: {matches}", flush=True)
+    print(f"  Mismatches: {mismatches}", flush=True)
 
 
 def print_summary(total: int, failures: list[str]) -> None:
@@ -298,61 +300,60 @@ def translate_source_file(source_litmus: Path, translated_path: Path, kind: str)
     )
 
 
-def translate_source_tests(paths: list[Path], translated_root: Path) -> dict[str, list[Path]]:
-    digest_map: dict[str, list[Path]] = defaultdict(list)
-    for source_litmus in paths:
-        rel_path = source_litmus.resolve().relative_to(LITMUS_ROOT.resolve())
-        translated_path = translated_root / rel_path
-        kind = infer_source_kind(source_litmus)
-        translate_source_file(source_litmus, translated_path, kind)
-        digest_map[canonical_digest(translated_path.read_text())].append(source_litmus)
-    return digest_map
-
-
-def choose_source_for_generated_variant(
-    generated_litmus: Path, digest_map: dict[str, list[Path]]
-) -> Path:
-    digest = canonical_digest(generated_litmus.read_text())
-    candidates = digest_map.get(digest)
-    if not candidates:
-        raise ComparisonError(f"No matching source litmus found for generated variant: {generated_litmus}")
-    return sorted(candidates)[0]
-
-
 def run_generated_strength_suite(paths: list[Path]) -> int:
     with tempfile.TemporaryDirectory(prefix="run-artifact-all-") as tmpdir:
         tmp_root = Path(tmpdir)
-        translated_root = tmp_root / "translated"
-        strength_root = tmp_root / "strength"
-
-        digest_map = translate_source_tests(paths, translated_root)
-        require_success(
-            run_command([str(TOGGLE_STRENGTH), str(translated_root), str(strength_root)]),
-            "toggle_memorder_strength",
-        )
-
-        generated_paths = sorted(strength_root.rglob("*.litmus"))
         failures: list[str] = []
-        for generated_litmus in generated_paths:
-            try:
-                source_litmus = choose_source_for_generated_variant(generated_litmus, digest_map)
-                kind = infer_source_kind(source_litmus)
-                herd_result = run_herd_c(source_litmus) if kind == "c" else run_herd_linux(source_litmus)
-                calculus_result = evaluate_litmus(generated_litmus)
-                matches = herd_result == calculus_result
-            except ComparisonError as error:
-                label = generated_litmus.resolve().relative_to(strength_root.resolve()).as_posix()
-                print(f"generated/{label}: MISMATCH", flush=True)
-                print(error, file=sys.stderr, flush=True)
-                failures.append(f"generated/{label}")
-                continue
+        generated_count = 0
+        for source_litmus in sorted(paths):
+            kind = infer_source_kind(source_litmus)
+            rel_path = source_litmus.resolve().relative_to(LITMUS_ROOT.resolve())
+            test_root = tmp_root / "per_test" / rel_path.with_suffix("")
+            input_dir = test_root / "input"
+            source_variants_dir = test_root / "source_variants"
+            translated_variants_dir = test_root / "translated_variants"
+            staged_source = input_dir / rel_path.name
+            input_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_litmus, staged_source)
+            require_success(
+                run_command(
+                    [
+                        str(TOGGLE_SOURCE_STRENGTH),
+                        str(input_dir),
+                        str(source_variants_dir),
+                        "--kind",
+                        kind,
+                    ]
+                ),
+                f"toggle_memorder_source_strength for {source_litmus}",
+            )
 
-            label = generated_litmus.resolve().relative_to(strength_root.resolve()).as_posix()
-            print(f"generated/{label}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
-            if not matches:
-                failures.append(f"generated/{label}")
+            generated_paths = sorted(source_variants_dir.rglob("*.litmus"))
+            if not generated_paths:
+                raise ComparisonError(f"No source strength variants generated for {source_litmus}")
 
-        print_summary(len(generated_paths), failures)
+            for generated_source in generated_paths:
+                rel_generated = generated_source.relative_to(source_variants_dir)
+                translated_path = translated_variants_dir / rel_generated
+                generated_count += 1
+                try:
+                    herd_result = run_herd_c(generated_source) if kind == "c" else run_herd_linux(generated_source)
+                    translate_source_file(generated_source, translated_path, kind)
+                    calculus_result = evaluate_litmus(translated_path)
+                    matches = herd_result == calculus_result
+                except ComparisonError as error:
+                    label = Path("generated") / rel_path.parent / rel_generated
+                    print(f"{label.as_posix()}: MISMATCH", flush=True)
+                    print(error, file=sys.stderr, flush=True)
+                    failures.append(label.as_posix())
+                    continue
+
+                label = Path("generated") / rel_path.parent / rel_generated
+                print(f"{label.as_posix()}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
+                if not matches:
+                    failures.append(label.as_posix())
+
+        print_summary(generated_count, failures)
         return 1 if failures else 0
 
 
@@ -362,56 +363,74 @@ def run_interchange_suite(stop_after: int | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="run-artifact-interchange-") as tmpdir:
         tmp_root = Path(tmpdir)
-        representative_dir, representative_groups = stage_representative_inputs(
+        _, representative_groups = stage_representative_inputs(
             CONVERTED_ROOT, tmp_root / "representative"
         )
-        strength_dir = tmp_root / "strength"
-        language_dir = tmp_root / "language"
-
-        require_success(
-            run_command([str(TOGGLE_STRENGTH), str(representative_dir), str(strength_dir)]),
-            "toggle_memorder_strength",
-        )
-        require_success(
-            run_command([str(TOGGLE_LANGUAGE), str(strength_dir), str(language_dir)]),
-            "toggle_memorder_language",
-        )
-
-        groups: dict[Path, list[tuple[str, Path]]] = defaultdict(list)
-        for litmus_path in sorted(language_dir.rglob("*.litmus")):
-            rel_path = litmus_path.relative_to(language_dir)
-            group_base, bits = parse_combo_stem(rel_path)
-            group_rel = rel_path.with_name(f"{group_base}.litmus")
-            groups[group_rel].append((bits, litmus_path))
-
         failures: list[str] = []
-        processed = 0
-        for group_rel, variants in sorted(groups.items()):
-            if stop_after is not None and processed >= stop_after:
+        processed_groups = 0
+        processed_original_tests = 0
+        tested_variants = 0
+        match_count = 0
+        mismatch_count = 0
+        for group_rel, variants in sorted(representative_groups.items()):
+            if stop_after is not None and processed_original_tests >= stop_after:
                 break
-            ordered_variants = sorted(variants, key=lambda item: item[0])
-            baseline_bits = "0" * len(ordered_variants[0][0])
-            if ordered_variants[0][0] != baseline_bits:
-                raise ComparisonError(
-                    f"Expected baseline variant {baseline_bits} for {group_rel}, "
-                    f"found {ordered_variants[0][0]}"
-                )
+            representative = variants[0]
+            test_root = tmp_root / "per_test" / group_rel.with_suffix("")
+            input_dir = test_root / "input"
+            strength_dir = test_root / "strength"
+            language_dir = test_root / "language"
+            input_path = input_dir / group_rel
+            input_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(representative, input_path)
 
-            verdicts = {
-                bits: evaluate_litmus(litmus_path)
-                for bits, litmus_path in ordered_variants[1:]
-            }
-            observed = set(verdicts.values())
-            label = group_rel.as_posix()
-            matches = len(observed) <= 1
-            print(f"interchange/{label}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
-            if not matches:
-                failures.append(f"interchange/{label}")
-                details = ", ".join(
-                    f"combo_{bits}={verdict}" for bits, verdict in sorted(verdicts.items())
-                )
-                print(details, file=sys.stderr, flush=True)
-            processed += 1
+            require_success(
+                run_command([str(TOGGLE_STRENGTH), str(input_dir), str(strength_dir)]),
+                f"toggle_memorder_strength for {representative}",
+            )
+            require_success(
+                run_command([str(TOGGLE_LANGUAGE), str(strength_dir), str(language_dir)]),
+                f"toggle_memorder_language for {representative}",
+            )
+
+            generated_groups: dict[Path, list[tuple[str, Path]]] = defaultdict(list)
+            for litmus_path in sorted(language_dir.rglob("*.litmus")):
+                rel_path = litmus_path.relative_to(language_dir)
+                group_base, bits = parse_combo_stem(rel_path)
+                generated_group_rel = rel_path.with_name(f"{group_base}.litmus")
+                generated_groups[generated_group_rel].append((bits, litmus_path))
+
+            if not generated_groups:
+                raise ComparisonError(f"No interchange variants generated for {representative}")
+            for label, generated_variants in sorted(generated_groups.items()):
+                ordered_variants = sorted(generated_variants, key=lambda item: item[0])
+                baseline_bits = "0" * len(ordered_variants[0][0])
+                if ordered_variants[0][0] != baseline_bits:
+                    raise ComparisonError(
+                        f"Expected baseline variant {baseline_bits} for {label}, "
+                        f"found {ordered_variants[0][0]}"
+                    )
+
+                verdicts = {
+                    bits: evaluate_litmus(litmus_path)
+                    for bits, litmus_path in ordered_variants[1:]
+                }
+                tested_variants += 1 + len(ordered_variants[1:])
+                observed = set(verdicts.values())
+                label_text = label.as_posix()
+                matches = len(observed) <= 1
+                print(f"interchange/{label_text}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
+                if not matches:
+                    failures.append(f"interchange/{label_text}")
+                    mismatch_count += 1
+                    details = ", ".join(
+                        f"combo_{bits}={verdict}" for bits, verdict in sorted(verdicts.items())
+                    )
+                    print(details, file=sys.stderr, flush=True)
+                else:
+                    match_count += 1
+                processed_groups += 1
+            processed_original_tests += 1
 
         print(
             "Interchange representatives: "
@@ -419,9 +438,12 @@ def run_interchange_suite(stop_after: int | None = None) -> int:
             f"{sum(len(paths) for paths in representative_groups.values())} inputs.",
             flush=True,
         )
-        if stop_after is not None and processed < len(groups):
-            print(f"Stopped early after {processed} interchange tests.", flush=True)
-        print_summary(processed, failures)
+        if stop_after is not None and processed_original_tests < len(representative_groups):
+            print(
+                f"Stopped early after {processed_original_tests} original interchange tests.",
+                flush=True,
+            )
+        print_variant_summary(tested_variants, match_count, mismatch_count)
         return 1 if failures else 0
 
 

@@ -10,7 +10,7 @@ P1(intptr_t *x1, intptr_t *x2){
 	Read(x1, None, Relaxed, Linux, r1_T1);
 	if (r1_T1 == 1) {
 		Write(x2, 1, Release, Linux, None);
-}
+	}
 }
 
 P2(intptr_t *x2, intptr_t *u0){
@@ -19,7 +19,7 @@ P2(intptr_t *x2, intptr_t *u0){
 	if (r1_T2 == 1) {
 		Fence(None, None, RMB, Linux, None);
 		Read(u0, None, Relaxed, Linux, r2);
-}
+	}
 }
 
 P3(intptr_t *u0){

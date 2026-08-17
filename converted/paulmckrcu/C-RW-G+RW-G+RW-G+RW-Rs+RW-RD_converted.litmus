@@ -30,7 +30,7 @@ P4(intptr_t *y0, intptr_t *x4){
 
 	Fence(None, None, RCU_LOCK, Linux, None);
 	Read(x4, None, Relaxed, Linux, r1_T4);
-	Write(r1_T4, 1, Relaxed, Linux, None);
+	Write(*r1_T4, 1, Relaxed, Linux, None);
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

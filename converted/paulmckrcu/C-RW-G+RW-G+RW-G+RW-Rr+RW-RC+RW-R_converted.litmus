@@ -30,7 +30,7 @@ Fence(None, None, RCU_LOCK, Linux, None);
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if ((r1_T4 != r4)) {
 		Write(x5, 1, Relaxed, Linux, None);
-}
+	}
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

@@ -2,15 +2,15 @@
 
 P0(int *x, int *y){
 
-	Read(x, None, Relaxed, Linux, r0_T0);
+	Read(x, None, Relaxed, C, r0_T0);
 
-	Write(x, 1, Relaxed, Linux, None);
+	Write(x, 1, Relaxed, C, None);
 }
 
 P1(int *x, int *y){
 
-	Read(x, None, Relaxed, Linux, r0_T1);
-	Write(x, 2, Relaxed, Linux, None);
+	Read(x, None, Relaxed, C, r0_T1);
+	Write(x, 2, Relaxed, C, None);
 }
 
 exists (r0_T0=2 /\ r0_T1=1)

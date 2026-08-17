@@ -4,9 +4,9 @@ P0(int *x, int *y){
 
 	Fence(None, None, RCU_LOCK, Linux, None);
 	Read(x, None, Relaxed, Linux, p);
-	Read(p, None, Relaxed, Linux, r0_T0);
+	Read(*p, None, Relaxed, Linux, r0_T0);
 	Read(y, None, Relaxed, Linux, q);
-	Read(q, None, Relaxed, Linux, r1_T0);
+	Read(*q, None, Relaxed, Linux, r1_T0);
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

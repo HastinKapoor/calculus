@@ -41,7 +41,7 @@ P5(intptr_t *x0, intptr_t *x5, intptr_t *x6){
 P6(intptr_t *x6, intptr_t *y0){
 
 	Read(x6, None, Relaxed, Linux, r1_T6);
-	Write(r1_T6, 1, Relaxed, Linux, None);
+	Write(*r1_T6, 1, Relaxed, Linux, None);
 }
 
 exists

@@ -9,7 +9,7 @@ P1(int *x, int **p){
 
 	Fence(None, None, RCU_LOCK, Linux, None);
 	Read(p, None, Relaxed, Linux, r0_T1);
-	Read(r0_T1, None, Relaxed, Linux, r1_T1);
+	Read(*r0_T1, None, Relaxed, Linux, r1_T1);
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

@@ -23,7 +23,7 @@ P2(intptr_t *x2, intptr_t *x3, intptr_t *x4){
 P3(intptr_t *x3, intptr_t *y4){
 
 	Read(x3, None, Relaxed, Linux, r1_T3);
-	Write(r1_T3, 1, Relaxed, Linux, None);
+	Write(*r1_T3, 1, Relaxed, Linux, None);
 }
 
 P4(intptr_t *x0, intptr_t *x4){

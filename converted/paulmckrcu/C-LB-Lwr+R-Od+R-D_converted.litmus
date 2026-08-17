@@ -2,18 +2,18 @@
 
 P0(intptr_t *u0, intptr_t *x1, intptr_t *x2){
 
-	Write(u0, 3, Relaxed, Linux, None);
+	Write(u0, 3, Relaxed, C, None);
 	Write(x1, x2, Release, Linux, None);
 }
 
 P1(intptr_t *x1){
 Read(x1, None, Relaxed, Linux, r1_T1);
-	Write(r1_T1, 1, Release, Linux, None);
+	Write(*r1_T1, 1, Release, Linux, None);
 }
 
 P2(intptr_t *x2, intptr_t *u0){
 Read(x2, None, Relaxed, Linux, r1_T2);
-	Read(u0, None, Relaxed, Linux, r2);
+	Read(u0, None, Relaxed, C, r2);
 }
 
 exists

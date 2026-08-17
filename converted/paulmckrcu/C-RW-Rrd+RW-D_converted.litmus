@@ -11,7 +11,7 @@ P0(intptr_t *x0, intptr_t *x1){
 P1(intptr_t *x1, intptr_t *y0){
 
 	Read(x1, None, Relaxed, Linux, r1_T1);
-	Write(r1_T1, 1, Relaxed, Linux, None);
+	Write(*r1_T1, 1, Relaxed, Linux, None);
 }
 
 exists

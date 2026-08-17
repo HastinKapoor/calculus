@@ -3,7 +3,6 @@
 
 import argparse
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,7 +18,6 @@ C_TRANSLATOR = ROOT / "c_to_calculus.py"
 TOGGLE_STRENGTH = ROOT / "toggle_memorder_strength.sh"
 TOGGLE_LANGUAGE = ROOT / "toggle_memorder_language.sh"
 COMBO_SUFFIX_RE = re.compile(r"^(?P<base>.+)_combo_(?P<bits>[01]+)$")
-INTERCHANGE_BASELINE_DIRS = ("c", "Kernel")
 MEMORDER_VARIANT_TOKENS = {
     "Racq",
     "Rna",
@@ -50,6 +48,13 @@ def require_success(result: subprocess.CompletedProcess[str], description: str) 
     raise SystemExit(f"{description} failed with exit code {result.returncode}.")
 
 
+def print_variant_summary(total_variants: int, matches: int, mismatches: int) -> None:
+    print("Summary:")
+    print(f"  Total variants tested: {total_variants}")
+    print(f"  Matches: {matches}")
+    print(f"  Mismatches: {mismatches}")
+
+
 def parse_combo_stem(path: Path) -> tuple[str, str]:
     match = COMBO_SUFFIX_RE.fullmatch(path.stem)
     if not match:
@@ -64,68 +69,39 @@ def representative_key(path: Path) -> str:
     return "+".join(parts)
 
 
-def infer_kind_from_path(path: Path) -> str:
-    parts = path.resolve().parts
-    if "litmus" in parts:
-        litmus_index = parts.index("litmus")
-        if litmus_index + 1 < len(parts):
-            family = parts[litmus_index + 1]
-            if family == "c":
-                return "c"
-            if family in {"Kernel", "paulmckrcu"}:
-                return "linux"
-    raise SystemExit(f"Could not infer source language from path: {path}")
+def collect_input_paths(input_path: Path) -> list[Path]:
+    if input_path.is_file():
+        if input_path.suffix != ".litmus":
+            raise SystemExit(f"Expected a .litmus file, got: {input_path}")
+        return [input_path]
+    if input_path.is_dir():
+        return sorted(input_path.rglob("*.litmus"))
+    raise SystemExit(f"Input not found: {input_path}")
 
 
-def iter_baseline_inputs(input_dir: Path) -> list[Path]:
-    if input_dir.name in {"converted", "litmus"}:
-        litmus_paths: list[Path] = []
-        for family in INTERCHANGE_BASELINE_DIRS:
-            family_dir = input_dir / family
-            if family_dir.is_dir():
-                litmus_paths.extend(sorted(family_dir.rglob("*.litmus")))
-        return litmus_paths
-    return sorted(input_dir.rglob("*.litmus"))
-
-
-def select_representative_inputs(input_dir: Path) -> dict[Path, list[Path]]:
+def select_representative_inputs(input_paths: list[Path], root_path: Path) -> dict[Path, list[Path]]:
     groups: dict[Path, list[Path]] = defaultdict(list)
-    for litmus_path in iter_baseline_inputs(input_dir):
-        rel_path = litmus_path.relative_to(input_dir)
+    for litmus_path in input_paths:
+        rel_path = Path(litmus_path.name) if root_path.is_file() else litmus_path.relative_to(root_path)
         key = rel_path.with_name(f"{representative_key(rel_path)}.litmus")
         groups[key].append(litmus_path)
     return groups
 
 
-def stage_representative_inputs(input_dir: Path, staged_dir: Path) -> tuple[Path, dict[Path, list[Path]]]:
-    groups = select_representative_inputs(input_dir)
-    staged_dir.mkdir(parents=True, exist_ok=True)
-    for rel_path, variants in groups.items():
-        destination = staged_dir / rel_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        preferred = input_dir / rel_path
-        representative = preferred if preferred in variants else variants[0]
-        shutil.copy2(representative, destination)
-    return staged_dir, groups
-
-
-def translate_representative_inputs(
-    input_dir: Path,
-    representative_groups: dict[Path, list[Path]],
+def translate_representative_input(
+    representative: Path,
+    rel_path: Path,
+    kind: str,
     translated_dir: Path,
 ) -> Path:
-    translated_dir.mkdir(parents=True, exist_ok=True)
-    for rel_path, variants in sorted(representative_groups.items()):
-        destination = translated_dir / rel_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        preferred = input_dir / rel_path
-        representative = preferred if preferred in variants else variants[0]
-        translator = C_TRANSLATOR if infer_kind_from_path(representative) == "c" else LINUX_TRANSLATOR
-        require_success(
-            run_command([sys.executable, str(translator), str(representative), "-o", str(destination)]),
-            f"translation for {representative}",
-        )
-    return translated_dir
+    destination = translated_dir / rel_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    translator = C_TRANSLATOR if kind == "c" else LINUX_TRANSLATOR
+    require_success(
+        run_command([sys.executable, str(translator), str(representative), "-o", str(destination)]),
+        f"translation for {representative}",
+    )
+    return destination
 
 
 def original_test_name(group_rel: Path) -> str:
@@ -163,8 +139,14 @@ def main() -> int:
         )
     )
     parser.add_argument(
-        "input_dir",
-        help="Directory of source .litmus files to analyze",
+        "input",
+        help="Source .litmus file or directory of source .litmus files to analyze",
+    )
+    parser.add_argument(
+        "--kind",
+        required=True,
+        choices=["c", "linux"],
+        help="Language of the input set",
     )
     parser.add_argument(
         "--keep-workdir",
@@ -172,9 +154,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    input_dir = Path(args.input_dir).resolve()
-    if not input_dir.is_dir():
-        raise SystemExit(f"Input directory not found: {input_dir}")
+    input_path = Path(args.input).resolve()
+    input_paths = collect_input_paths(input_path)
 
     if args.keep_workdir:
         workdir = Path(args.keep_workdir).resolve()
@@ -184,77 +165,64 @@ def main() -> int:
         cleanup = tempfile.TemporaryDirectory(prefix="memorder-toggle-check-")
         workdir = Path(cleanup.name)
 
-    representative_dir, representative_groups = stage_representative_inputs(
-        input_dir, workdir / "representative"
-    )
-    translated_dir = translate_representative_inputs(
-        input_dir, representative_groups, workdir / "translated"
-    )
-    strength_dir = workdir / "strength"
-    language_dir = workdir / "language"
+    representative_groups = select_representative_inputs(input_paths, input_path)
+    failures: list[str] = []
+    tested_variants = 0
+    match_count = 0
+    mismatch_count = 0
 
-    require_success(
-        run_command([str(TOGGLE_STRENGTH), str(translated_dir), str(strength_dir)]),
-        "toggle_memorder_strength",
-    )
-    require_success(
-        run_command([str(TOGGLE_LANGUAGE), str(strength_dir), str(language_dir)]),
-        "toggle_memorder_language",
-    )
+    for group_rel, variants in sorted(representative_groups.items()):
+        representative = variants[0]
+        test_root = workdir / "per_test" / group_rel.with_suffix("")
+        translated_dir = test_root / "translated"
+        strength_dir = test_root / "strength"
+        language_dir = test_root / "language"
 
-    groups: dict[Path, list[tuple[str, Path]]] = defaultdict(list)
-    for litmus_path in sorted(language_dir.rglob("*.litmus")):
-        rel_path = litmus_path.relative_to(language_dir)
-        group_base, bits = parse_combo_stem(rel_path)
-        group_rel = rel_path.with_name(f"{group_base}.litmus")
-        groups[group_rel].append((bits, litmus_path))
-
-    if not groups:
-        raise SystemExit(f"No language-toggle outputs found under {language_dir}")
-
-    failing_tests: dict[str, list[str]] = defaultdict(list)
-
-    for group_rel, variants in sorted(groups.items()):
-        ordered_variants = sorted(variants, key=lambda item: item[0])
-        baseline_bits = "0" * len(ordered_variants[0][0])
-        if ordered_variants[0][0] != baseline_bits:
-            raise SystemExit(
-                f"Expected baseline variant {baseline_bits} for {group_rel}, "
-                f"found {ordered_variants[0][0]}"
-            )
-
-        test_name = original_test_name(group_rel)
-        generated_variants = ", ".join(
-            f"combo_{bits}" for bits, _ in ordered_variants
+        translate_representative_input(representative, group_rel, args.kind, translated_dir)
+        require_success(
+            run_command([str(TOGGLE_STRENGTH), str(translated_dir), str(strength_dir)]),
+            f"toggle_memorder_strength for {representative}",
         )
-        print(f"{test_name} <- {group_rel.as_posix()}: {generated_variants}")
+        require_success(
+            run_command([str(TOGGLE_LANGUAGE), str(strength_dir), str(language_dir)]),
+            f"toggle_memorder_language for {representative}",
+        )
 
-        alternate_results = []
-        for bits, litmus_path in ordered_variants[1:]:
-            alternate_results.append((bits, evaluate_litmus(litmus_path)))
+        groups: dict[Path, list[tuple[str, Path]]] = defaultdict(list)
+        for litmus_path in sorted(language_dir.rglob("*.litmus")):
+            rel_path = litmus_path.relative_to(language_dir)
+            group_base, bits = parse_combo_stem(rel_path)
+            generated_group_rel = rel_path.with_name(f"{group_base}.litmus")
+            groups[generated_group_rel].append((bits, litmus_path))
 
-        observed = {result for _, result in alternate_results}
-        if len(observed) > 1:
-            strength_variant = group_rel.as_posix()
-            summary = ", ".join(f"combo_{bits}={result}" for bits, result in alternate_results)
-            failing_tests[test_name].append(f"{strength_variant}: {summary}")
+        if not groups:
+            raise SystemExit(f"No language-toggle outputs found under {language_dir}")
 
-    total_tests = len({original_test_name(group_rel) for group_rel in groups})
+        for generated_group_rel, generated_variants in sorted(groups.items()):
+            ordered_variants = sorted(generated_variants, key=lambda item: item[0])
+            baseline_bits = "0" * len(ordered_variants[0][0])
+            if ordered_variants[0][0] != baseline_bits:
+                raise SystemExit(
+                    f"Expected baseline variant {baseline_bits} for {generated_group_rel}, "
+                    f"found {ordered_variants[0][0]}"
+                )
 
-    print(
-        f"Checked {total_tests} representative tests "
-        f"(from {sum(len(paths) for paths in representative_groups.values())} inputs)."
-    )
-    if not failing_tests:
-        print("All tests passed.")
-        return 0
+            alternate_results = []
+            for bits, litmus_path in ordered_variants[1:]:
+                alternate_results.append((bits, evaluate_litmus(litmus_path)))
 
-    print("Tests with disagreeing non-baseline outputs:")
-    for test_name in sorted(failing_tests):
-        print(test_name)
-        for detail in failing_tests[test_name]:
-            print(f"  {detail}")
-    return 1
+            tested_variants += 1 + len(ordered_variants[1:])
+            observed = {result for _, result in alternate_results}
+            label = generated_group_rel.as_posix()
+            matches = len(observed) <= 1
+            print(f"{label}: {'MATCH' if matches else 'MISMATCH'}", flush=True)
+            if not matches:
+                failures.append(label)
+                mismatch_count += 1
+            else:
+                match_count += 1
+    print_variant_summary(tested_variants, match_count, mismatch_count)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

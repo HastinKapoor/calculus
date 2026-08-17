@@ -15,7 +15,7 @@ P2(intptr_t *x2, intptr_t *x3){
 	Read(x2, None, Relaxed, Linux, r1_T2);
 	if (r1_T2 == 1) {
 		Write(x3, 1, Release, Linux, None);
-}
+	}
 }
 
 P3(intptr_t *x3, intptr_t *u0){
@@ -23,7 +23,7 @@ P3(intptr_t *x3, intptr_t *u0){
 	Read(x3, None, Relaxed, Linux, r1_T3);
 	if (r1_T3 == 1) {
 		Read(u0, None, Relaxed, Linux, r2);
-}
+	}
 }
 
 exists

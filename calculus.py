@@ -197,19 +197,37 @@ def ComposeFlattenedRelation(left, right):
     return None
 
 def CloseTransitiveCompositions(relations):
+    # Cumulative-fence chains can contain cycles. If we keep every distinct
+    # flattened expansion, a cycle like A ; B ; A ; B ; ... generates
+    # infinitely many longer representatives. For propagation, we only need one
+    # representative chain for each (start cumul-fence, end cumul-fence) pair:
+    # any longer chain with the same start and end composes with the same next
+    # base cumulative fence.
     result = relations.copy()
-    changed = True
+    representatives = {}
+    pending = []
 
-    while changed:
-        changed = False
-        snapshot = result.copy()
-        for left in snapshot:
-            for right in snapshot:
-                composed = ComposeFlattenedRelation(left, right)
-                if composed is not None:
-                    if composed not in result:
-                        result.append(composed)
-                        changed = True
+    for index, relation in enumerate(relations):
+        key = (index, index)
+        representatives[key] = relation
+        pending.append(key)
+
+    while pending:
+        start_index, end_index = pending.pop()
+        current = representatives[(start_index, end_index)]
+
+        for next_index, next_relation in enumerate(relations):
+            composed = ComposeFlattenedRelation(current, next_relation)
+            if composed is None:
+                continue
+
+            key = (start_index, next_index)
+            if key in representatives:
+                continue
+
+            representatives[key] = composed
+            result.append(composed)
+            pending.append(key)
 
     return result
 

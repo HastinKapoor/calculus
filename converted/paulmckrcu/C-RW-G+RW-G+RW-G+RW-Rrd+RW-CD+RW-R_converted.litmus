@@ -30,8 +30,8 @@ P4(intptr_t *x4, intptr_t *y5){
 
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if (r1_T4 != y5) {
-		Write(r1_T4, 1, Relaxed, Linux, None);
-}
+		Write(*r1_T4, 1, Relaxed, Linux, None);
+	}
 }
 
 P5(intptr_t *x0, intptr_t *x5){

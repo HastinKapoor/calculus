@@ -18,7 +18,7 @@ P2(intptr_t *x2, intptr_t *y0){
 
 	Fence(None, None, RCU_LOCK, Linux, None);
 	Read(x2, None, Relaxed, Linux, r1_T2);
-	Write(r1_T2, 1, Relaxed, Linux, None);
+	Write(*r1_T2, 1, Relaxed, Linux, None);
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

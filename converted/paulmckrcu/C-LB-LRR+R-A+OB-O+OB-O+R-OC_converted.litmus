@@ -28,7 +28,7 @@ P4(intptr_t *x4, intptr_t *u0){
 	if (r1_T4 == 1) {
 		Fence(None, None, RMB, Linux, None);
 		Read(u0, None, Relaxed, Linux, r2);
-}
+	}
 }
 
 P5(intptr_t *u0){

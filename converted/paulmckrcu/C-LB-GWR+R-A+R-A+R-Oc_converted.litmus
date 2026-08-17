@@ -20,7 +20,7 @@ P3(intptr_t *x3, intptr_t *v0){
 	Read(x3, None, Relaxed, Linux, r1_T3);
 	if (r1_T3 == 1) {
 		Read(v0, None, Relaxed, Linux, r2_T3);
-}
+	}
 }
 
 P4(intptr_t *v0, intptr_t *u0){

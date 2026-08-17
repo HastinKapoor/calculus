@@ -15,7 +15,7 @@ P2(intptr_t *x2, intptr_t *x3){
 	Read(x2, None, Relaxed, Linux, r1_T2);
 	if (r1_T2 == 1) {
 		Write(x3, 1, Release, Linux, None);
-}
+	}
 }
 
 P3(intptr_t *x3, intptr_t *x4){
@@ -24,7 +24,7 @@ P3(intptr_t *x3, intptr_t *x4){
 	if (r1_T3 == 1) {
 		Fence(None, None, SEQ_CST, Linux, None);
 		Write(x4, 1, Relaxed, Linux, None);
-}
+	}
 }
 
 P4(intptr_t *x4, intptr_t *u0){

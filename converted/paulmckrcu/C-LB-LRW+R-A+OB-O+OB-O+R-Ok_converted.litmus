@@ -26,8 +26,8 @@ P4(intptr_t *x4, intptr_t *z4, intptr_t *u0){
 
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if (r1_T4 == 1) {
-		Read(z4, None, Relaxed, Linux, 1);
-}
+		Read(z4, None, Relaxed, Linux, r4_T4);
+	}
 	Write(u0, 1, Relaxed, Linux, None);
 }
 

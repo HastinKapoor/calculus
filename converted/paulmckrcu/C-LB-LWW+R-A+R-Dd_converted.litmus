@@ -13,7 +13,7 @@ P1(intptr_t *u0, intptr_t *x1, intptr_t *x2){
 
 P2(intptr_t *x2){
 Read(x2, None, Relaxed, Linux, r1_T2);
-	Write(r1_T2, 1, Relaxed, Linux, None);
+	Write(*r1_T2, 1, Relaxed, Linux, None);
 }
 
 exists

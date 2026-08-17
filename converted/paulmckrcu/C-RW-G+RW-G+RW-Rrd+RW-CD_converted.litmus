@@ -24,8 +24,8 @@ P3(intptr_t *y0, intptr_t *x3){
 
 	Read(x3, None, Relaxed, Linux, r1_T3);
 	if (r1_T3 != y0) {
-		Write(r1_T3, 1, Relaxed, Linux, None);
-}
+		Write(*r1_T3, 1, Relaxed, Linux, None);
+	}
 }
 
 exists

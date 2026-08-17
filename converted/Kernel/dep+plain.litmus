@@ -2,9 +2,11 @@
 
 P0(int *x, int *y, int *z1, int *z2){
 Read(x, None, Relaxed, Linux, a);
-	Write(z1, a, Relaxed, Linux, None);
-	Read(z1, None, Relaxed, Linux, z2);
-	if (*z2 == 1)
+	Write(z1, a, Relaxed, C, None);
+	Read(z1, None, Relaxed, C, plain_tmp_0);
+	Write(z2, plain_tmp_0, Relaxed, C, None);
+	Read(z2, None, Relaxed, C, plain_tmp_1);
+	if (plain_tmp_1 == 1)
 		Write(y, 1, Relaxed, Linux, None);
 }
 

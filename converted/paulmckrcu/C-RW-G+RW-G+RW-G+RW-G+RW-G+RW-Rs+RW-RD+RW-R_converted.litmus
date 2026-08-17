@@ -42,7 +42,7 @@ P6(intptr_t *x6, intptr_t *y7){
 
 	Fence(None, None, RCU_LOCK, Linux, None);
 	Read(x6, None, Relaxed, Linux, r1_T6);
-	Write(r1_T6, 1, Relaxed, Linux, None);
+	Write(*r1_T6, 1, Relaxed, Linux, None);
 	Fence(None, None, RCU_UNLOCK, Linux, None);
 }
 

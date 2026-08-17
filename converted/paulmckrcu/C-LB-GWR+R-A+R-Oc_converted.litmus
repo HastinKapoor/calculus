@@ -15,7 +15,7 @@ P2(intptr_t *x2, intptr_t *v0){
 	Read(x2, None, Relaxed, Linux, r1_T2);
 	if (r1_T2 == 1) {
 		Read(v0, None, Relaxed, Linux, r2_T2);
-}
+	}
 }
 
 P3(intptr_t *u0, intptr_t *v0){

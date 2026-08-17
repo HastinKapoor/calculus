@@ -12,7 +12,7 @@ P1(intptr_t *x1, intptr_t *x2){
 		Fence(None, None, RMB, Linux, None);
 		Fence(None, None, SEQ_CST, Linux, None);
 		Write(x2, 1, Relaxed, Linux, None);
-}
+	}
 }
 
 P2(intptr_t *x2, intptr_t *x3){
@@ -26,7 +26,7 @@ P3(intptr_t *x3, intptr_t *x4){
 	if (r1_T3 == 1) {
 		Fence(None, None, SEQ_CST, Linux, None);
 		Write(x4, 1, Relaxed, Linux, None);
-}
+	}
 }
 
 P4(intptr_t *x4, intptr_t *u0){

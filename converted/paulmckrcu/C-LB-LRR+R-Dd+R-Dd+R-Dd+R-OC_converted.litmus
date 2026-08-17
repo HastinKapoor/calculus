@@ -9,18 +9,18 @@ P0(intptr_t *u0, intptr_t *x1, intptr_t *x2){
 P1(intptr_t *x1, intptr_t *x3){
 
 	Read(x1, None, Relaxed, Linux, r1_T1);
-	Write(r1_T1, x3, Release, Linux, None);
+	Write(*r1_T1, x3, Release, Linux, None);
 }
 
 P2(intptr_t *x2, intptr_t *x4){
 
 	Read(x2, None, Relaxed, Linux, r1_T2);
-	Write(r1_T2, x4, Release, Linux, None);
+	Write(*r1_T2, x4, Release, Linux, None);
 }
 
 P3(intptr_t *x3){
 Read(x3, None, Relaxed, Linux, r1_T3);
-	Write(r1_T3, 1, Release, Linux, None);
+	Write(*r1_T3, 1, Release, Linux, None);
 }
 
 P4(intptr_t *x4, intptr_t *u0){
@@ -29,7 +29,7 @@ P4(intptr_t *x4, intptr_t *u0){
 	if (r1_T4 == 1) {
 		Fence(None, None, RMB, Linux, None);
 		Read(u0, None, Relaxed, Linux, r2);
-}
+	}
 }
 
 P5(intptr_t *u0){

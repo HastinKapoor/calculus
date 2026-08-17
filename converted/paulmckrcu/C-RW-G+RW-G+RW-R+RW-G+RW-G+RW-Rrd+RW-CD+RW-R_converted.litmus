@@ -43,8 +43,8 @@ P6(intptr_t *x6, intptr_t *y7){
 
 	Read(x6, None, Relaxed, Linux, r1_T6);
 	if (r1_T6 != y7) {
-		Write(r1_T6, 1, Relaxed, Linux, None);
-}
+		Write(*r1_T6, 1, Relaxed, Linux, None);
+	}
 }
 
 P7(intptr_t *x7, intptr_t *x0){

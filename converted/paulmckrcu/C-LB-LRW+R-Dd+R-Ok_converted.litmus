@@ -8,15 +8,15 @@ P0(intptr_t *u0, intptr_t *x1, intptr_t *x2){
 
 P1(intptr_t *x1){
 Read(x1, None, Relaxed, Linux, r1_T1);
-	Write(r1_T1, 1, Release, Linux, None);
+	Write(*r1_T1, 1, Release, Linux, None);
 }
 
 P2(intptr_t *x2, intptr_t *z2, intptr_t *u0){
 
 	Read(x2, None, Relaxed, Linux, r1_T2);
 	if (r1_T2 == 1) {
-		Read(z2, None, Relaxed, Linux, 1);
-}
+		Read(z2, None, Relaxed, Linux, r4_T2);
+	}
 	Write(u0, 1, Relaxed, Linux, None);
 }
 

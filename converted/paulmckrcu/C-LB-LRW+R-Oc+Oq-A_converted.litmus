@@ -10,7 +10,7 @@ P1(intptr_t *x1, intptr_t *x2){
 	Read(x1, None, Relaxed, Linux, r1_T1);
 	if (r1_T1 == 1) {
 		Write(x2, 2, Relaxed, Linux, None);
-}
+	}
 	Write(x2, 1, Relaxed, Linux, None);
 }
 

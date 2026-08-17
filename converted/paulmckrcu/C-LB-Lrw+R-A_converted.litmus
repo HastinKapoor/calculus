@@ -1,14 +1,14 @@
 {}
 
 P0(intptr_t *u0, intptr_t *x1){
-Read(u0, None, Relaxed, Linux, r1_T0);
+Read(u0, None, Relaxed, C, r1);
 	Write(x1, 1, Release, Linux, None);
 }
 
 P1(intptr_t *u0, intptr_t *x1){
-Read(x1, None, Acquire, Linux, r1_T1);
-	Write(u0, 1, Relaxed, Linux, None);
+Read(x1, None, Acquire, Linux, r1);
+	Write(u0, 1, Relaxed, C, None);
 }
 
 exists
-(r1_T0=1 /\ r1_T1=1)
+(r1=1 /\ r1=1)

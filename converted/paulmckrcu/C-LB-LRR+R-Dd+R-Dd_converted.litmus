@@ -9,12 +9,12 @@ P0(intptr_t *u0, intptr_t *x1, intptr_t *x2){
 P1(intptr_t *u0, intptr_t *x1){
 
 	Read(x1, None, Relaxed, Linux, r1_T1);
-	Write(r1_T1, u0, Release, Linux, None);
+	Write(*r1_T1, u0, Release, Linux, None);
 }
 
 P2(intptr_t *x2){
 Read(x2, None, Relaxed, Linux, r1_T2);
-	Read(r1_T2, None, Relaxed, Linux, r2);
+	Read(*r1_T2, None, Relaxed, Linux, r2);
 }
 
 P3(intptr_t *u0){

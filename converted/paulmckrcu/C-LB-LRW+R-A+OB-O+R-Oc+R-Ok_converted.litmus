@@ -21,15 +21,15 @@ P3(intptr_t *x3, intptr_t *x4){
 	Read(x3, None, Relaxed, Linux, r1_T3);
 	if (r1_T3 == 1) {
 		Write(x4, 1, Release, Linux, None);
-}
+	}
 }
 
 P4(intptr_t *x4, intptr_t *z4, intptr_t *u0){
 
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if (r1_T4 == 1) {
-		Read(z4, None, Relaxed, Linux, 1);
-}
+		Read(z4, None, Relaxed, Linux, r4_T4);
+	}
 	Write(u0, 1, Relaxed, Linux, None);
 }
 

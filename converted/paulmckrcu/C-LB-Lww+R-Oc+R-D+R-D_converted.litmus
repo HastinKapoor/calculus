@@ -1,7 +1,7 @@
 {}
 
 P0(intptr_t *u0, intptr_t *x1){
-Write(u0, 3, Relaxed, Linux, None);
+Write(u0, 3, Relaxed, C, None);
 	Write(x1, 1, Release, Linux, None);
 }
 
@@ -10,7 +10,7 @@ P1(intptr_t *x1, intptr_t *x2){
 	Read(x1, None, Relaxed, Linux, r1_T1);
 	if (r1_T1 == 1) {
 		Write(x2, 1, Release, Linux, None);
-}
+	}
 }
 
 P2(intptr_t *x2, intptr_t *x3){
@@ -20,7 +20,7 @@ Read(x2, None, Relaxed, Linux, r1_T2);
 
 P3(intptr_t *x3, intptr_t *u0){
 Read(x3, None, Relaxed, Linux, r1_T3);
-	Write(u0, 1, Relaxed, Linux, None);
+	Write(u0, 1, Relaxed, C, None);
 }
 
 exists

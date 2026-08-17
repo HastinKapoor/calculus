@@ -11,7 +11,7 @@ P1(intptr_t *x1, intptr_t *x2){
 	if (r1_T1 == 1) {
 		Fence(None, None, RMB, Linux, None);
 		Write(x2, 1, Release, Linux, None);
-}
+	}
 }
 
 P2(intptr_t *x2, intptr_t *x3){
@@ -20,7 +20,7 @@ P2(intptr_t *x2, intptr_t *x3){
 	if (r1_T2 == 1) {
 		Fence(None, None, SEQ_CST, Linux, None);
 		Write(x3, 1, Relaxed, Linux, None);
-}
+	}
 }
 
 P3(intptr_t *x3, intptr_t *u0){

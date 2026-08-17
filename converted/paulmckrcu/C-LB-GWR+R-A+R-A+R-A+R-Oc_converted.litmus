@@ -25,7 +25,7 @@ P4(intptr_t *v0, intptr_t *x4){
 	Read(x4, None, Relaxed, Linux, r1_T4);
 	if (r1_T4 == 1) {
 		Read(v0, None, Relaxed, Linux, r2_T4);
-}
+	}
 }
 
 P5(intptr_t *u0, intptr_t *v0){
