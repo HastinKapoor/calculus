@@ -1,6 +1,6 @@
 # Calculus Artifact Branch
 
-Comparison workflow:
+The artifact pipeline uses the following comparison workflow:
 
 1. Start from a Linux `.litmus` file or a C `.litmus` litmus test.
 2. Run it through `herd7`.
@@ -43,7 +43,7 @@ python3 scripts/evaluate_calculus_pipeline.py path/to/test.litmus --keep-transla
 python3 scripts/evaluate_calculus_pipeline.py converted/Kernel/MP+polocks.litmus --kind converted
 ```
 
-Memorder toggle consistency:
+Memorder toggle consistency generates multiple variants of the given input, varying operation strength (e.g. write vs release) and language (c vs linux) to test interchangeability:
 
 ```bash
 python3 scripts/check_memorder_toggle_consistency.py litmus
