@@ -23,6 +23,7 @@ python3 scripts/run_artifact_pipeline.py --suite interchange
 --kind is used to specify which memory model to compare against in herd7. Using --kind c for a Linux program will fail to translate (e.g. READ_ONCE is not defined), using --kind linux for a C program will produce incorrect results (the LKMM applied to a C program is too weak).
 
 For long interchange runs, you can stop early with `Ctrl+C` and still get a partial summary. You can also create `.interchange_stop` in the repo root to stop cleanly after the current source test finishes.
+Additionally, for the interchangeability suite the --stop-after N flag can be used to run a set number of tests.
 
 Translation + calculus-only workflow:
 
@@ -46,8 +47,7 @@ python3 scripts/evaluate_calculus_pipeline.py converted/Kernel/MP+polocks.litmus
 Memorder toggle consistency generates multiple variants of the given input, varying operation strength (e.g. write vs release) and language (c vs linux) to test interchangeability:
 
 ```bash
-python3 scripts/check_memorder_toggle_consistency.py litmus
-python3 scripts/check_memorder_toggle_consistency.py litmus/c
+python3 scripts/check_memorder_toggle_consistency.py ./litmus/Kernel --kind linux
 ```
 
 Example inputs:
