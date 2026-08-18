@@ -20,7 +20,9 @@ python3 scripts/run_artifact_pipeline.py --suite RCU
 python3 scripts/run_artifact_pipeline.py --suite interchange
 ```
 
-For long interchange runs, you can stop early with `Ctrl+C` and still get a partial summary. You can also create `.interchange_stop` in the repo root to stop cleanly after the current original test finishes.
+--kind is used to specify which memory model to compare against in herd7. Using --kind c for a Linux program will fail to translate (e.g. READ_ONCE is not defined), using --kind linux for a C program will produce incorrect results (the LKMM applied to a C program is too weak).
+
+For long interchange runs, you can stop early with `Ctrl+C` and still get a partial summary. You can also create `.interchange_stop` in the repo root to stop cleanly after the current source test finishes.
 
 Translation + calculus-only workflow:
 
@@ -31,7 +33,7 @@ Translation + calculus-only workflow:
 Use the calculus-only entry point:
 
 ```bash
-python3 scripts/evaluate_calculus_pipeline.py path/to/test.litmus
+python3 scripts/evaluate_calculus_pipeline.py path/to/test.litmus --kind [c/linux/converted]
 ```
 
 Useful options:
