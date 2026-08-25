@@ -791,7 +791,7 @@ def ToST(threads, rf):
         for r in rfe:
             if pr.Composes(r):
                 for ap in acq_po:
-                    if r.Composes(acq_po):
+                    if r.Composes(ap):
                         result.append(Relation(pr, r, ap))
                 if r.Last().strength == MemoryOrder.ACQUIRE or r.Last().language == Language.LINUX:
                     result.append(Relation(pr, r))
@@ -800,8 +800,8 @@ def ToST(threads, rf):
     for r in rfe:
         if r.First().strength == MemoryOrder.RELEASE or r.First().language == Language.LINUX:
             for ap in acq_po:
-                if r.Composes(acq_po):
-                    result.append(Relation(pr, r, ap))
+                if r.Composes(ap):
+                    result.append(Relation(r, ap))
     
     return result
 
